@@ -1,0 +1,30 @@
+[package]
+name = "yggdrasil-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.28"
+tokio = { version = "1.28.1", features = ["full"] }
+tokio-stream = { version = "0.1.14", features = ["net"] }
+tokio-util = { version = "0.7.8", features = ["codec"] }
+tokio-utils = "0.1.2"
+ironwood-rs = { path="../ironwood-rs" }
+hex = "0.4.3"
+ed25519-dalek = "1.0.1"
+env_logger = "0.10.0"
+log = "0.4.19"
+tokio-tun = "0.7.0"
+console-subscriber = "0.1.10"
+clap = { version = "4.3.19", features = ["derive"] }
+lazy_static = { version = "1.4.0", features = ["spin"] }
+rand = "0.7.3"
+serde_json = "1.0.104"
+serde = { version = "1.0.178", features = ["derive"] }
+nu-json = "0.83.0"
+url = "2.4.0"
+
+[profile.release]
+debug=true
