@@ -70,7 +70,7 @@ fn reset_timeout(info: &mut KeyInfo) {
 
 #[derive(Clone)]
 pub struct KeyStore {
-    pub core: Core,
+    pub core: Arc<Core>,
     address: Address,
     subnet: Subnet,
     tables: Arc<Mutex<KeyStoreTables>>,
@@ -80,7 +80,7 @@ pub struct KeyStore {
 }
 
 pub struct KeyStoreRead {
-    pub core: Core,
+    pub core: Arc<Core>,
     pub core_read: CoreRead,
     address: Address,
     subnet: Subnet,
@@ -91,7 +91,7 @@ pub struct KeyStoreRead {
 }
 
 impl KeyStore {
-    pub fn new(core: Core, core_read: CoreRead) -> (Self, KeyStoreRead) {
+    pub fn new(core: Arc<Core>, core_read: CoreRead) -> (Self, KeyStoreRead) {
         //core.pconn.pconn.set_out_of_band_handler();
         let tables = Arc::new(Mutex::new(KeyStoreTables::new()));
         let addr_buffer = Arc::new(Mutex::new(HashMap::new()));
@@ -439,7 +439,7 @@ pub struct ReadWriteCloserRead {
 }
 
 impl ReadWriteCloser {
-    pub fn new(core: Core, core_read: CoreRead) -> (Self, ReadWriteCloserRead) {
+    pub fn new(core: Arc<Core>, core_read: CoreRead) -> (Self, ReadWriteCloserRead) {
         let (key_store, key_store_read) = KeyStore::new(core, core_read);
         (
             ReadWriteCloser { key_store },

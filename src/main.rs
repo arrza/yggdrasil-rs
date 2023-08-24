@@ -437,17 +437,18 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     // Setup the admin socket.
     // Setup the multicast module.
     // Setup the TUN module.
+
     {
-        let options = expotvec![
+        let options = vec![
             SetupOption::InterfaceName(cfg.if_name),
             SetupOption::InterfaceMTU(cfg.if_mtu as u16),
         ];
 
-        tokio::spawn(async move {
-            let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
-            let tun = TunAdapter::new(&rwc, options).unwrap();
-            tun.start(rwc, rwc_read).await;
-        });
+        // tokio::spawn(async move {
+        let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
+        let tun = TunAdapter::new(&rwc, options).expect("Can not create tun device");
+        tun.start(rwc, rwc_read).await;
+        // });
     }
 
     Ok(())

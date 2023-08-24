@@ -54,7 +54,6 @@ pub struct Link {
     inner: Arc<Mutex<LinkInternal>>,
 }
 
-
 #[derive(Clone)]
 pub struct LinkOptions {
     pinned_ed25519_keys: HashMap<PublicKeyBytes, ()>,
@@ -169,7 +168,7 @@ impl Links {
         false
     }
 
-    async fn call(
+    pub async fn call(
         &self,
         core: Arc<Core>,
         url: &url::Url,
@@ -224,10 +223,10 @@ impl Links {
         let host_port = url.port_or_known_default().unwrap();
         // let socket_addr = (host_str.to_owned()+":"+&host_port.to_string()).parse().unwrap();\
         // let tcp_conn = TcpStream::connect(socket_addr).await?;
-        let tcp_link = LinkTCP{
-            links : self.clone()
+        let tcp_link = LinkTCP {
+            links: self.clone(),
         };
-        tcp_link.dial(core,url, options, sintf).await;
+        tcp_link.dial(core, url, options, sintf).await;
 
         Ok(dial_info)
     }

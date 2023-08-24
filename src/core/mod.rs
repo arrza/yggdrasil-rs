@@ -1,8 +1,8 @@
 mod link;
+mod link_tcp;
 mod nodeinfo;
 mod options;
 mod proto;
-mod link_tcp;
 
 use ed25519_dalek::{PublicKey, SecretKey};
 use ironwood_rs::{
@@ -18,6 +18,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::sync::mpsc;
 
@@ -75,7 +76,7 @@ pub struct Core {
     secret: EdPriv,
     pub public: PublicKey,
     config: CoreConfig,
-    links: Links
+    links: Links,
 }
 
 pub struct CoreRead {
@@ -115,7 +116,7 @@ impl CoreRead {
 }
 
 impl Core {
-    pub async fn new(secret: &SecretKey, opts: Vec<SetupOption>) -> (Core, CoreRead) {
+    pub async fn new(secret: &SecretKey, opts: Vec<SetupOption>) -> (Arc<Core>, CoreRead) {
         let mut ed_secret = [0; 64];
         ed_secret[..32].copy_from_slice(secret.as_bytes());
         let pub_key: PublicKey = secret.into();
@@ -128,15 +129,35 @@ impl Core {
 
         let (oob_handler_tx, mut oob_handler_rx) = mpsc::channel(10);
         let (pconn, pconn_read) = PacketConn::new(secret, Some(oob_handler_tx)).await;
-
-        (
-            Core {
-                pconn: pconn.clone(),
-                secret: ed_secret.clone(),
-                public: pub_key,
-                config,
-                links: Links{ links: Arc::new(Mutex::new(HashMap::new())) }
+        let core = Core {
+            pconn: pconn.clone(),
+            secret: ed_secret.clone(),
+            public: pub_key,
+            config,
+            links: Links {
+                links: Arc::new(Mutex::new(HashMap::new())),
             },
+        };
+        let core = Arc::new(core);
+        //Add Peer Loop
+        let core_cln = core.clone();
+        tokio::spawn(async {
+            let core = core_cln;
+            loop {
+                for (peer, _) in core.config.peers.iter() {
+                    core.links
+                        .call(
+                            core.clone(),
+                            &peer.uri.parse().unwrap(),
+                            peer.source_interface.as_ref().map_or_else(|| "", |v| &v),
+                        )
+                        .await;
+                }
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+        (
+            core,
             CoreRead {
                 pconn,
                 pconn_read,
@@ -145,6 +166,7 @@ impl Core {
             },
         )
     }
+
     pub fn mtu(&self) -> u64 {
         self.pconn.mtu() - 1
     }
