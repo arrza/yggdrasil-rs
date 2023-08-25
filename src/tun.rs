@@ -6,6 +6,7 @@ use crate::{
     core::SetupOption,
     ipv6rwc::{ReadWriteCloser, ReadWriteCloserRead},
 };
+use ironwood_rs::network::packetconn::OobHandlerRx;
 use log::{debug, info};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -102,6 +103,7 @@ impl TunAdapter {
         mut self,
         mut rwc: ReadWriteCloser,
         mut rwc_read: ReadWriteCloserRead,
+        mut oob_handler_rx: OobHandlerRx,
     ) -> Result<(), String> {
         if self.is_open {
             return Err("TUN module is already started".into());
@@ -126,6 +128,16 @@ impl TunAdapter {
         rwc.set_mtu(self.mtu);
         rwc_read.set_mtu(self.mtu);
 
+        let mut key_store_oob = rwc.key_store.clone();
+        let oob_task = async {
+            while let Some((source, dest, msg)) = oob_handler_rx.recv().await {
+                println!("OO: {} {} {}", source, dest, msg.len());
+                key_store_oob
+                    .oob_handler(source.into(), dest.into(), &msg)
+                    .await;
+            }
+        };
+
         let (mut tun_reader, mut tun_writer) = tokio::io::split(self.iface);
         let rx_task = async {
             let mut buf = [0; 65536];
@@ -147,6 +159,7 @@ impl TunAdapter {
         select! {
             _ = rx_task => {},
             _ = tx_task => {},
+            _ = oob_task => {},
         }
         Ok(())
     }

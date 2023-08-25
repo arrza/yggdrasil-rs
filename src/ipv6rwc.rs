@@ -431,7 +431,7 @@ impl KeyStoreRead {
 }
 
 pub struct ReadWriteCloser {
-    key_store: KeyStore,
+    pub key_store: KeyStore,
 }
 
 pub struct ReadWriteCloserRead {

@@ -10,6 +10,7 @@ use ironwood_rs::{
         crypto::EdPriv,
         packetconn::{PacketConn, PacketConnRead},
     },
+    network::packetconn::OobHandlerRx,
     types::Addr,
 };
 pub use options::{Peer, SetupOption};
@@ -116,7 +117,10 @@ impl CoreRead {
 }
 
 impl Core {
-    pub async fn new(secret: &SecretKey, opts: Vec<SetupOption>) -> (Arc<Core>, CoreRead) {
+    pub async fn new(
+        secret: &SecretKey,
+        opts: Vec<SetupOption>,
+    ) -> (Arc<Core>, CoreRead, OobHandlerRx) {
         let mut ed_secret = [0; 64];
         ed_secret[..32].copy_from_slice(secret.as_bytes());
         let pub_key: PublicKey = secret.into();
@@ -164,6 +168,7 @@ impl Core {
                 secret: ed_secret,
                 public: pub_key,
             },
+            oob_handler_rx,
         )
     }
 

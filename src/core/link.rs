@@ -11,7 +11,6 @@ use log::{debug, info};
 use std::{
     collections::HashMap,
     error::Error,
-    io::{Read, Write},
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -219,12 +218,7 @@ impl Links {
             }
         }
 
-        let l = self.clone();
         let dial_info = info.clone();
-        let host_str = url.host_str().unwrap();
-        let host_port = url.port_or_known_default().unwrap();
-        // let socket_addr = (host_str.to_owned()+":"+&host_port.to_string()).parse().unwrap();\
-        // let tcp_conn = TcpStream::connect(socket_addr).await?;
         let tcp_link = LinkTCP {
             links: self.clone(),
         };

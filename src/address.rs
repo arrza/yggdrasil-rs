@@ -1,10 +1,9 @@
 //! Package address contains the types used by yggdrasil to represent IPv6 addresses or prefixes, as well as functions for working with these types.
 //! Of particular importance are the functions used to derive addresses or subnets from a NodeID, or to get the NodeID and bitmask of the bits visible from an address, which is needed for DHT searches.
 
-use ed25519_dalek::PublicKey;
 use ironwood_rs::network::crypto::PublicKeyBytes;
 use lazy_static::lazy_static;
-use std::{collections::HashMap, convert::TryInto, net::Ipv6Addr, sync::Mutex};
+use std::{collections::HashMap, net::Ipv6Addr, sync::Mutex};
 
 /// Address represents an IPv6 address in the yggdrasil address range.
 pub type Address = [u8; 16];

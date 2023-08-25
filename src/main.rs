@@ -219,6 +219,7 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     let cfg = config;
     let core;
     let core_read;
+    let oob_handler_rx;
     // Setup the Yggdrasil node itself.
     {
         let sk = hex::decode(cfg.private_key)?;
@@ -251,7 +252,7 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
             hex::decode_to_slice(allowed, &mut pk.0)?;
             options.push(SetupOption::AllowedPublicKey(pk));
         }
-        (core, core_read) = Core::new(&sk, options).await;
+        (core, core_read, oob_handler_rx) = Core::new(&sk, options).await;
     }
 
     // Setup the admin socket.
@@ -267,7 +268,8 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
         // tokio::spawn(async move {
         let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
         let tun = TunAdapter::new(&rwc, options).expect("Can not create tun device");
-        tun.start(rwc, rwc_read).await;
+        tun.start(rwc, rwc_read, oob_handler_rx).await;
+
         // });
     }
 
