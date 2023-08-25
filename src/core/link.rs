@@ -139,6 +139,7 @@ impl Links {
         force: bool,
         options: LinkOptions,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        debug!("++create");
         let conn = LinkConn::new(conn);
         let mut intf = Link {
             links: self.clone(),
@@ -151,13 +152,14 @@ impl Links {
                 force,
             })),
         };
+        debug!("  create.1");
         tokio::spawn(async move {
             let peer_addr = conn.conn.peer_addr().unwrap();
             if let Err(err) = intf.handler(core, conn, dial).await {
                 eprintln!("Link handler {} error ({:?}): {}", name, peer_addr, err);
             }
         });
-
+        debug!("--create");
         Ok(())
     }
 
@@ -283,19 +285,15 @@ impl Link {
         }
         let base = VersionMetadata::get_base_metadata(core.public.into());
 
-        {
-            let mut meta_bytes = Vec::new();
-            base.encode(&mut meta_bytes);
-            //self.conn.conn.set_deadline(Some(Instant::now() + Duration::from_secs(6)))?;
-            let n = { conn.write(&meta_bytes).await? };
-            if n != meta_bytes.len() {
-                return Err("incomplete handshake send".into());
-            }
+        let mut meta_bytes = Vec::new();
+        base.encode(&mut meta_bytes);
+        //self.conn.conn.set_deadline(Some(Instant::now() + Duration::from_secs(6)))?;
+        let n = { conn.write(&meta_bytes).await? };
+        if n != meta_bytes.len() {
+            return Err("incomplete handshake send".into());
         }
-        let mut response = [0u8; 40]; // Assuming the response is 40 bytes
-        {
-            conn.read_exact(&mut response).await?;
-        }
+        let mut response = vec![0u8; meta_bytes.len()]; // Assuming the response is 40 bytes
+        conn.read_exact(&mut response).await?;
 
         //        intf.conn.clear_deadline()?;
         let meta = VersionMetadata::decode(&response)?;

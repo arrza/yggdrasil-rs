@@ -49,11 +49,12 @@ impl LinkTCP {
             options,
             false,
             false,
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
-    fn handler(
+    async fn handler(
         &self,
         core: Arc<Core>,
         dial: LinkDial,
@@ -64,15 +65,17 @@ impl LinkTCP {
         incoming: bool,
         force: bool,
     ) -> Result<(), Box<dyn Error>> {
-        self.links.create(
-            core, conn,     // connection
-            dial,     // connection URL
-            name,     // connection name
-            info,     // connection info
-            incoming, // not incoming
-            force,    // not forced
-            options,  // connection options
-        );
+        self.links
+            .create(
+                core, conn,     // connection
+                dial,     // connection URL
+                name,     // connection name
+                info,     // connection info
+                incoming, // not incoming
+                force,    // not forced
+                options,  // connection options
+            )
+            .await;
 
         Ok(())
     }
