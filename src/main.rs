@@ -2,6 +2,7 @@ mod address;
 mod config;
 mod core;
 mod defaults;
+mod error;
 mod ipv6rwc;
 mod tun;
 mod version;

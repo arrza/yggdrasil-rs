@@ -13,6 +13,7 @@ use crate::address::{
     self, addr_for_key, get_key, get_key_subnet, subnet_for_key, to_ipv6, Address, Subnet,
 };
 use crate::core::{Core, CoreRead};
+use crate::error::YggErrors;
 
 const KEY_STORE_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -283,13 +284,13 @@ impl KeyStore {
     }
 
     // Here is the conversion for writePC
-    pub async fn write_pc(&mut self, bs: &[u8]) -> Result<usize, Box<dyn Error>> {
+    pub async fn write_pc(&mut self, bs: &[u8]) -> Result<usize, YggErrors> {
         if bs[0] & 0xf0 != 0x60 {
-            return Err("Not an IPv6 packet".into()); // not IPv6
+            return Err(YggErrors::InvalidPacket); // not IPv6
         }
 
         if bs.len() < 40 {
-            return Err(format!("Undersized IPv6 packet, length: {}", bs.len()).into());
+            return Err(YggErrors::UnderSizedIpv6Packet(bs.len()));
         }
 
         let mut src_addr: Address = [0; 16];
@@ -300,20 +301,22 @@ impl KeyStore {
         let dst_subnet: Subnet = bs[24..32].try_into().unwrap();
 
         if src_addr != self.address && src_subnet != self.subnet {
-            return Err(format!(
-                "Incorrect source address: {}, {}",
+            return Err(YggErrors::InvalidSourceAddress(
                 to_ipv6(&self.address),
-                to_ipv6(&src_addr)
-            )
-            .into());
+                to_ipv6(&src_addr),
+            ));
         }
 
         if address::is_valid(&dst_addr) {
-            self.send_to_address(dst_addr, bs).await?;
+            self.send_to_address(dst_addr, bs)
+                .await
+                .map_err(|e| YggErrors::SendError(e.to_string()))?;
         } else if address::is_valid_subnet(&dst_subnet) {
-            self.send_to_subnet(dst_subnet, bs).await?;
+            self.send_to_subnet(dst_subnet, bs)
+                .await
+                .map_err(|e| YggErrors::SendError(e.to_string()))?;
         } else {
-            return Err("Invalid destination address".into());
+            return Err(YggErrors::InvalidDestinationAddress(to_ipv6(&dst_addr)));
         }
 
         Ok(bs.len())
@@ -465,7 +468,7 @@ impl ReadWriteCloser {
         self.key_store.mtu = mtu.into();
     }
 
-    pub async fn write(&mut self, bs: &[u8]) -> Result<usize, Box<dyn Error>> {
+    pub async fn write(&mut self, bs: &[u8]) -> Result<usize, YggErrors> {
         self.key_store.write_pc(bs).await
     }
 }

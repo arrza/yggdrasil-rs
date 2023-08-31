@@ -4,10 +4,11 @@ use super::defaults;
 use crate::{
     address::{to_ipv6, Address, Subnet},
     core::SetupOption,
+    error::YggErrors,
     ipv6rwc::{ReadWriteCloser, ReadWriteCloserRead},
 };
 use ironwood_rs::network::packetconn::OobHandlerRx;
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
@@ -150,9 +151,15 @@ impl TunAdapter {
             let mut buf_tun = [0; 65536];
             while let Ok(rx_size) = tun_reader.read(&mut buf_tun).await {
                 debug!("Tun Received {} bytes ", rx_size);
-                rwc.write(&buf_tun[..rx_size])
-                    .await
-                    .map_err(|e| println!("Error: {}", e));
+                if let Err(e) = rwc.write(&buf_tun[..rx_size]).await {
+                    error!("Error sending tun packet: {}", e);
+                    match e {
+                        YggErrors::SendError(_) => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
             }
         };
 
