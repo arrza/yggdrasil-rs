@@ -10,33 +10,16 @@ mod version;
 use crate::{
     address::{addr_for_key, subnet_for_key, to_ipv6},
     core::{Core, SetupOption},
-    ipv6rwc::{KeyStore, ReadWriteCloser},
+    ipv6rwc::ReadWriteCloser,
     tun::TunAdapter,
 };
 use clap::Parser;
 use config::NodeConfig;
-use ed25519_dalek::{PublicKey, SecretKey};
+use ed25519_dalek::SecretKey;
 use hex::FromHex;
-use ironwood_rs::{
-    encrypted::packetconn::PacketConn,
-    network::{
-        crypto::PublicKeyBytes,
-        wire::{Decode, Encode},
-    },
-    types::Addr,
-};
-use log::{debug, info, warn};
-use nu_json::value::ToJson;
-use std::{error::Error, io::Read, net::IpAddr, os::fd::AsRawFd, time::Duration};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-    select,
-    sync::mpsc,
-};
-use tokio_stream::wrappers::TcpListenerStream;
-use tokio_tun::TunBuilder;
-use version::VersionMetadata;
+use ironwood_rs::network::crypto::PublicKeyBytes;
+use log::warn;
+use std::{error::Error, io::Read, net::IpAddr};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -106,8 +89,7 @@ fn get_args() -> YggArgs {
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let args = get_args();
-    run(args).await;
-    return Ok(());
+    run(args).await
 }
 
 fn read_config(useconf: bool, useconffile: &str, normaliseconf: bool) -> NodeConfig {
@@ -141,15 +123,11 @@ fn read_config(useconf: bool, useconffile: &str, normaliseconf: bool) -> NodeCon
 
 fn do_genconf(is_json: bool) -> String {
     let cfg = defaults::generate_config();
-    let result: String;
-
     if is_json {
-        result = serde_json::to_string_pretty(&cfg).expect("JSON serialization error:");
+        serde_json::to_string_pretty(&cfg).expect("JSON serialization error:")
     } else {
-        result = nu_json::to_string(&cfg).expect("JSON serialization error:");
+        nu_json::to_string(&cfg).expect("JSON serialization error:")
     }
-
-    result
 }
 
 async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
@@ -269,7 +247,7 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
         // tokio::spawn(async move {
         let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
         let tun = TunAdapter::new(&rwc, options).expect("Can not create tun device");
-        tun.start(rwc, rwc_read, oob_handler_rx).await;
+        tun.start(rwc, rwc_read, oob_handler_rx).await?;
 
         // });
     }
@@ -278,10 +256,8 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn get_node_key(private_key: &str) -> Option<PublicKeyBytes> {
-    if let Ok(pubkey) = <[u8; 32]>::from_hex(&private_key[..64]) {
-        if let Ok(private_key) = ed25519_dalek::SecretKey::from_bytes(&pubkey) {
-            return Some(PublicKeyBytes(pubkey));
-        }
+    if let Ok(pubkey) = <[u8; 32]>::from_hex(&private_key[64..]) {
+        return Some(PublicKeyBytes(pubkey));
     }
     None
 }

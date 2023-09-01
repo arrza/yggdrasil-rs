@@ -34,7 +34,7 @@ impl LinkTCP {
             return Ok(());
         }
         let name = url.to_string();
-        let name = name.splitn(2, '?').next().unwrap().trim_end_matches('/');
+        let name = name.split('?').next().unwrap().trim_end_matches('/');
         let dial = LinkDial {
             url: url.clone(),
             sintf: sintf.to_string(),
@@ -110,9 +110,5 @@ fn tcp_id_for(local: &SocketAddr, remote_addr: &SocketAddr) -> String {
 }
 
 fn is_unicast_link_local(ipv6_addr: &Ipv6Addr) -> bool {
-    if ipv6_addr.segments()[0] == 0xfe80 {
-        true
-    } else {
-        false
-    }
+    ipv6_addr.segments()[0] == 0xfe80
 }

@@ -211,7 +211,7 @@ impl Links {
             .find(|(key, _)| key == "priority")
             .map(|(_, value)| value)
         {
-            if let Ok(pi) = u8::from_str_radix(&priority, 10) {
+            if let Ok(pi) = priority.parse::<u8>() {
                 options.priority = pi;
             } else {
                 return Ok(info);
@@ -258,7 +258,7 @@ impl Links {
 
 impl Link {
     fn get_inner(&self) -> MutexGuard<LinkInternal> {
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         inner
     }
     pub async fn handler(
@@ -312,10 +312,8 @@ impl Link {
 
         let intf = (*self.get_inner()).clone();
         let pinned = &intf.options.pinned_ed25519_keys;
-        if !pinned.is_empty() {
-            if !pinned.contains_key(&meta.key) {
-                return Err("node public key that does not match pinned keys".into());
-            }
+        if !pinned.is_empty() && !pinned.contains_key(&meta.key) {
+            return Err("node public key that does not match pinned keys".into());
         }
 
         // Check if we're authorized to connect to this key / IP

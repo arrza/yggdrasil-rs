@@ -26,7 +26,6 @@ use tokio::sync::mpsc;
 use self::{
     link::{LinkInfo, Links},
     options::{AllowedPublicKey, ListenAddress, NodeInfo, NodeInfoPrivacy},
-    proto::ProtoHandler,
 };
 
 // Packet types
@@ -131,7 +130,7 @@ impl Core {
             config._apply_option(opt);
         }
 
-        let (oob_handler_tx, mut oob_handler_rx) = mpsc::channel(10);
+        let (oob_handler_tx, oob_handler_rx) = mpsc::channel(10);
         let (pconn, pconn_read) = PacketConn::new(secret, Some(oob_handler_tx)).await;
         let core = Core {
             pconn: pconn.clone(),
@@ -153,7 +152,7 @@ impl Core {
                         .call(
                             core.clone(),
                             &peer.uri.parse().unwrap(),
-                            peer.source_interface.as_ref().map_or_else(|| "", |v| &v),
+                            peer.source_interface.as_ref().map_or_else(|| "", |v| v),
                         )
                         .await;
                 }

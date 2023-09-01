@@ -4,10 +4,8 @@ use ironwood_rs::types::Addr;
 use log::debug;
 use std::collections::HashMap;
 use std::error::Error;
-use std::net::Ipv6Addr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::time::sleep;
 
 use crate::address::{
     self, addr_for_key, get_key, get_key_subnet, subnet_for_key, to_ipv6, Address, Subnet,
@@ -140,7 +138,7 @@ impl KeyStore {
         } else {
             {
                 let mut addr_buffer = self.addr_buffer.lock().unwrap();
-                let buf = addr_buffer.entry(addr.clone()).or_insert(Buffer {
+                let buf = addr_buffer.entry(addr).or_insert(Buffer {
                     packet: Vec::new(),
                     timeout: Instant::now() + KEY_STORE_TIMEOUT,
                 });
@@ -174,7 +172,7 @@ impl KeyStore {
         } else {
             {
                 let mut subnet_buffer = self.subnet_buffer.lock().unwrap();
-                let buf = subnet_buffer.entry(subnet.clone()).or_insert(Buffer {
+                let buf = subnet_buffer.entry(subnet).or_insert(Buffer {
                     packet: Vec::new(),
                     timeout: Instant::now() + KEY_STORE_TIMEOUT,
                 });
@@ -205,10 +203,10 @@ impl KeyStore {
                 let addr = addr_for_key(&key).unwrap();
                 let subnet = subnet_for_key(&key).unwrap();
 
-                let mut info = KeyInfo {
+                let info = KeyInfo {
                     key: k_array,
-                    address: addr.clone(),
-                    subnet: subnet.clone(),
+                    address: addr,
+                    subnet: subnet,
                     timeout: Instant::now() + KEY_STORE_TIMEOUT,
                 };
 
@@ -340,10 +338,10 @@ impl KeyStoreRead {
                 let addr = addr_for_key(&key).unwrap();
                 let subnet = subnet_for_key(&key).unwrap();
 
-                let mut info = KeyInfo {
+                let info = KeyInfo {
                     key: k_array,
-                    address: addr.clone(),
-                    subnet: subnet.clone(),
+                    address: addr,
+                    subnet,
                     timeout: Instant::now() + KEY_STORE_TIMEOUT,
                 };
 

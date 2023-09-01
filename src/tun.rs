@@ -8,7 +8,7 @@ use crate::{
     ipv6rwc::{ReadWriteCloser, ReadWriteCloserRead},
 };
 use ironwood_rs::network::packetconn::OobHandlerRx;
-use log::{debug, error, info};
+use log::{debug, error};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
@@ -40,25 +40,25 @@ pub fn get_supported_mtu(mtu: u16) -> u16 {
     if mtu > maximum_mtu() {
         return maximum_mtu();
     }
-    return mtu;
+    mtu
 }
 
 // DefaultName gets the default TUN interface name for your platform.
 fn default_name() -> String {
-    return defaults::get_defaults().default_if_name;
+    defaults::get_defaults().default_if_name
 }
 
 // DefaultMTU gets the default TUN interface MTU for your platform. This can
 // be as high as MaximumMTU(), depending on platform, but is never lower than 1280.
 fn default_mtu() -> u16 {
-    return defaults::get_defaults().default_if_mtu as u16;
+    defaults::get_defaults().default_if_mtu as u16
 }
 
 // MaximumMTU returns the maximum supported TUN interface MTU for your
 // platform. This can be as high as 65535, depending on platform, but is never
 // lower than 1280.
 fn maximum_mtu() -> u16 {
-    return defaults::get_defaults().maximum_if_mtu as u16;
+    defaults::get_defaults().maximum_if_mtu as u16
 }
 
 impl TunAdapter {
@@ -129,13 +129,11 @@ impl TunAdapter {
         rwc.set_mtu(self.mtu);
         rwc_read.set_mtu(self.mtu);
 
-        let mut key_store_oob = rwc.key_store.clone();
+        let key_store_oob = rwc.key_store.clone();
         let oob_task = async {
             while let Some((source, dest, msg)) = oob_handler_rx.recv().await {
                 println!("OO: {} {} {}", source, dest, msg.len());
-                key_store_oob
-                    .oob_handler(source.into(), dest.into(), &msg)
-                    .await;
+                key_store_oob.oob_handler(source, dest, &msg).await;
             }
         };
 
@@ -151,14 +149,12 @@ impl TunAdapter {
             let mut buf_tun = [0; 65536];
             while let Ok(rx_size) = tun_reader.read(&mut buf_tun).await {
                 debug!("Tun Received {} bytes ", rx_size);
-                if let Err(e) = rwc.write(&buf_tun[..rx_size]).await {
-                    error!("Error sending tun packet: {}", e);
-                    match e {
-                        YggErrors::SendError(_) => {
-                            break;
-                        }
-                        _ => {}
-                    }
+                let Err(e) = rwc.write(&buf_tun[..rx_size]).await else {
+                    continue;
+                };
+                error!("Error sending tun packet: {}", e);
+                if let YggErrors::SendError(_) = e {
+                    break;
                 }
             }
         };

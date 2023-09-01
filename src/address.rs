@@ -77,9 +77,9 @@ pub fn addr_for_key(public_key: &PublicKeyBytes) -> Option<Address> {
     }
     let mut buf: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
     buf.copy_from_slice(public_key.as_bytes());
-    for idx in 0..buf.len() {
+    (0..buf.len()).for_each(|idx| {
         buf[idx] = !buf[idx];
-    }
+    });
     let mut addr: Address = [0; 16];
     let mut temp = Vec::with_capacity(256);
     let mut done = false;
@@ -107,10 +107,7 @@ pub fn addr_for_key(public_key: &PublicKeyBytes) -> Option<Address> {
     addr[..prefix.len()].copy_from_slice(&prefix);
     addr[prefix.len()] = ones;
     addr[prefix.len() + 1..].copy_from_slice(&temp[..16 - prefix.len() - 1]);
-    ADDR_TABLE
-        .lock()
-        .unwrap()
-        .insert(public_key.clone(), addr.clone());
+    ADDR_TABLE.lock().unwrap().insert(public_key.clone(), addr);
     Some(addr)
 }
 
@@ -153,9 +150,9 @@ pub fn get_key(a: &Address) -> PublicKeyBytes {
         }
         key[idx] |= bits;
     }
-    for idx in 0..key.len() {
+    (0..key.len()).for_each(|idx| {
         key[idx] = !key[idx];
-    }
+    });
     PublicKeyBytes(key)
 }
 

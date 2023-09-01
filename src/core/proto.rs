@@ -10,25 +10,25 @@ use super::{
 
 #[derive(Debug, PartialEq)]
 pub enum DebugMessageType {
-    DebugDummy = 0,
-    DebugGetSelfRequest = 1,
-    DebugGetSelfResponse = 2,
-    DebugGetPeersRequest = 3,
-    DebugGetPeersResponse = 4,
-    DebugGetDHTRequest = 5,
-    DebugGetDHTResponse = 6,
+    Dummy = 0,
+    GetSelfRequest = 1,
+    GetSelfResponse = 2,
+    GetPeersRequest = 3,
+    GetPeersResponse = 4,
+    GetDHTRequest = 5,
+    GetDHTResponse = 6,
 }
 
 impl From<u8> for DebugMessageType {
     fn from(value: u8) -> Self {
         match value {
-            0 => DebugMessageType::DebugDummy,
-            1 => DebugMessageType::DebugGetSelfRequest,
-            2 => DebugMessageType::DebugGetSelfResponse,
-            3 => DebugMessageType::DebugGetPeersRequest,
-            4 => DebugMessageType::DebugGetPeersResponse,
-            5 => DebugMessageType::DebugGetDHTRequest,
-            6 => DebugMessageType::DebugGetDHTResponse,
+            0 => DebugMessageType::Dummy,
+            1 => DebugMessageType::GetSelfRequest,
+            2 => DebugMessageType::GetSelfResponse,
+            3 => DebugMessageType::GetPeersRequest,
+            4 => DebugMessageType::GetPeersResponse,
+            5 => DebugMessageType::GetDHTRequest,
+            6 => DebugMessageType::GetDHTResponse,
             _ => panic!("Invalid Debug Message"),
         }
     }
@@ -64,13 +64,13 @@ impl ProtoHandler {
             return Ok(());
         }
         match bs[0].into() {
-            DebugMessageType::DebugDummy => {}
-            DebugMessageType::DebugGetSelfRequest => todo!(),
-            DebugMessageType::DebugGetSelfResponse => todo!(),
-            DebugMessageType::DebugGetPeersRequest => todo!(),
-            DebugMessageType::DebugGetPeersResponse => todo!(),
-            DebugMessageType::DebugGetDHTRequest => todo!(),
-            DebugMessageType::DebugGetDHTResponse => todo!(),
+            DebugMessageType::Dummy => {}
+            DebugMessageType::GetSelfRequest => todo!(),
+            DebugMessageType::GetSelfResponse => todo!(),
+            DebugMessageType::GetPeersRequest => todo!(),
+            DebugMessageType::GetPeersResponse => todo!(),
+            DebugMessageType::GetDHTRequest => todo!(),
+            DebugMessageType::GetDHTResponse => todo!(),
         }
         Ok(())
     }
