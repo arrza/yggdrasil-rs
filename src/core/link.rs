@@ -1,5 +1,5 @@
 use crate::{
-    address::{addr_for_key, to_ipv6},
+    address::{addr_for_key, address_to_ipv6},
     version::VersionMetadata,
     Core,
 };
@@ -80,10 +80,11 @@ pub struct LinkConn {
 }
 
 #[derive(Clone)]
-struct LinkConnHandle {
-    rx: Arc<AtomicU64>,
-    tx: Arc<AtomicU64>,
-    up: Arc<Instant>,
+pub struct LinkConnHandle {
+    pub rx: Arc<AtomicU64>,
+    pub tx: Arc<AtomicU64>,
+    pub up: Arc<Instant>,
+    pub remote_addr: String,
 }
 
 impl LinkConn {
@@ -100,6 +101,7 @@ impl LinkConn {
             rx: self.rx.clone(),
             tx: self.tx.clone(),
             up: self.up.clone(),
+            remote_addr: self.conn.peer_addr().unwrap().to_string(),
         }
     }
 
@@ -261,6 +263,18 @@ impl Link {
         let inner = self.inner.lock().unwrap();
         inner
     }
+    pub fn get_name(&self) -> String {
+        self.get_inner().lname.clone()
+    }
+
+    pub fn get_remote_addr(&self) -> String {
+        self.get_inner().conn.remote_addr.clone()
+    }
+
+    pub fn get_link_conn(&self) -> LinkConnHandle {
+        self.get_inner().conn.clone()
+    }
+
     pub async fn handler(
         &mut self,
         core: Arc<Core>,
@@ -336,7 +350,7 @@ impl Link {
         }
 
         let dir = if intf.incoming { "inbound" } else { "outbound" };
-        let remote_addr = to_ipv6(&addr_for_key(&meta.key).unwrap()).to_string();
+        let remote_addr = address_to_ipv6(&addr_for_key(&meta.key).unwrap()).to_string();
         let remote_str = format!("{}@{}", remote_addr, intf.info.remote);
         let local_str = conn.conn.local_addr()?;
         info!(

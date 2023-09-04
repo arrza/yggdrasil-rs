@@ -1,4 +1,5 @@
 mod address;
+mod admin;
 mod config;
 mod core;
 mod defaults;
@@ -8,7 +9,8 @@ mod tun;
 mod version;
 
 use crate::{
-    address::{addr_for_key, subnet_for_key, to_ipv6},
+    address::{addr_for_key, address_to_ipv6, subnet_for_key},
+    admin::AdminSocket,
     core::{Core, SetupOption},
     ipv6rwc::ReadWriteCloser,
     tun::TunAdapter,
@@ -179,7 +181,7 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     if args.getaddr {
         if let Some(key) = get_node_key(&config.private_key) {
             let addr = addr_for_key(&key).unwrap();
-            let ip = IpAddr::V6(to_ipv6(&addr));
+            let ip = IpAddr::V6(address_to_ipv6(&addr));
             println!("{}", ip);
         }
         return Ok(());
@@ -190,7 +192,7 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
             let snet = subnet_for_key(&key).unwrap();
             let mut addr = [0; 16];
             addr[..8].copy_from_slice(&snet);
-            let ipnet = IpAddr::V6(to_ipv6(&addr));
+            let ipnet = IpAddr::V6(address_to_ipv6(&addr));
             println!("{}", ipnet);
         }
         return Ok(());
@@ -235,6 +237,13 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     }
 
     // Setup the admin socket.
+    {
+        let mut admin = AdminSocket::new(core.clone(), cfg.admin_listen);
+        admin.setup_admin_handlers();
+        tokio::spawn(async move {
+            admin.listen().await;
+        });
+    }
     // Setup the multicast module.
     // Setup the TUN module.
 

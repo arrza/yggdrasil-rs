@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::address::{
-    self, addr_for_key, get_key, get_key_subnet, subnet_for_key, to_ipv6, Address, Subnet,
+    self, addr_for_key, address_to_ipv6, get_key, get_key_subnet, subnet_for_key, Address, Subnet,
 };
 use crate::core::{Core, CoreRead};
 use crate::error::YggErrors;
@@ -206,7 +206,7 @@ impl KeyStore {
                 let info = KeyInfo {
                     key: k_array,
                     address: addr,
-                    subnet: subnet,
+                    subnet,
                     timeout: Instant::now() + KEY_STORE_TIMEOUT,
                 };
 
@@ -300,8 +300,8 @@ impl KeyStore {
 
         if src_addr != self.address && src_subnet != self.subnet {
             return Err(YggErrors::InvalidSourceAddress(
-                to_ipv6(&self.address),
-                to_ipv6(&src_addr),
+                address_to_ipv6(&self.address),
+                address_to_ipv6(&src_addr),
             ));
         }
 
@@ -314,7 +314,9 @@ impl KeyStore {
                 .await
                 .map_err(|e| YggErrors::SendError(e.to_string()))?;
         } else {
-            return Err(YggErrors::InvalidDestinationAddress(to_ipv6(&dst_addr)));
+            return Err(YggErrors::InvalidDestinationAddress(address_to_ipv6(
+                &dst_addr,
+            )));
         }
 
         Ok(bs.len())

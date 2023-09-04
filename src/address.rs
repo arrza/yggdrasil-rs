@@ -19,7 +19,7 @@ pub fn get_prefix() -> [u8; 1] {
     [0x02]
 }
 
-pub fn to_ipv6(addr: &Address) -> Ipv6Addr {
+pub fn address_to_ipv6(addr: &Address) -> Ipv6Addr {
     Ipv6Addr::new(
         u16::from_be_bytes([addr[0], addr[1]]),
         u16::from_be_bytes([addr[2], addr[3]]),
@@ -29,6 +29,19 @@ pub fn to_ipv6(addr: &Address) -> Ipv6Addr {
         u16::from_be_bytes([addr[10], addr[11]]),
         u16::from_be_bytes([addr[12], addr[13]]),
         u16::from_be_bytes([addr[14], addr[15]]),
+    )
+}
+
+pub fn subnet_to_ipv6(addr: &Subnet) -> Ipv6Addr {
+    Ipv6Addr::new(
+        u16::from_be_bytes([addr[0], addr[1]]),
+        u16::from_be_bytes([addr[2], addr[3]]),
+        u16::from_be_bytes([addr[4], addr[5]]),
+        u16::from_be_bytes([addr[6], addr[7]]),
+        u16::from_be_bytes([0, 0]),
+        u16::from_be_bytes([0, 0]),
+        u16::from_be_bytes([0, 0]),
+        u16::from_be_bytes([0, 0]),
     )
 }
 

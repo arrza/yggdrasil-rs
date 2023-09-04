@@ -1,3 +1,4 @@
+mod api;
 mod link;
 mod link_tcp;
 mod nodeinfo;
@@ -5,6 +6,7 @@ mod options;
 mod proto;
 
 use ed25519_dalek::{PublicKey, SecretKey};
+use ipnet::Ipv6Net;
 use ironwood_rs::{
     encrypted::{
         crypto::EdPriv,
@@ -18,10 +20,13 @@ use std::{
     cmp::min,
     collections::{HashMap, HashSet},
     error::Error,
-    sync::{Arc, Mutex},
+    net::Ipv6Addr,
+    sync::{atomic::Ordering, Arc, Mutex},
     time::Duration,
 };
 use tokio::sync::mpsc;
+
+use crate::address::{addr_for_key, address_to_ipv6, subnet_for_key, subnet_to_ipv6};
 
 use self::{
     link::{LinkInfo, Links},
@@ -181,5 +186,53 @@ impl Core {
         buf.extend_from_slice(p);
         self.pconn.write_to(&buf, addr).await?;
         Ok(())
+    }
+
+    pub fn address(&self) -> Ipv6Addr {
+        address_to_ipv6(&addr_for_key(&self.pconn.pconn.core.crypto.public_key).unwrap())
+    }
+
+    pub fn subnet(&self) -> Ipv6Net {
+        let ipv6 =
+            subnet_to_ipv6(&subnet_for_key(&self.pconn.pconn.core.crypto.public_key).unwrap());
+        Ipv6Net::new(ipv6, 64).unwrap()
+    }
+
+    pub async fn get_self(&self) -> api::SelfInfo {
+        let self_ = self.pconn.pconn.core.dhtree.get_self().await;
+        api::SelfInfo {
+            key: self_.key,
+            root: self_.root,
+            coords: self_.coords,
+        }
+    }
+    pub async fn get_peers(&self) -> Vec<api::PeerInfo> {
+        let peers = self.pconn.pconn.core.dhtree.get_peers().await;
+        let mut peer_infos = Vec::new();
+        let mut names = HashMap::new();
+        {
+            let links = self.links.links.lock().unwrap();
+            for (info, link) in links.iter() {
+                names.insert(
+                    link.get_remote_addr(),
+                    (link.get_name(), link.get_link_conn()),
+                );
+            }
+        }
+        for peer in peers {
+            let (name, link_conn) = names.get(&peer.remote_addr).unwrap();
+            peer_infos.push(api::PeerInfo {
+                key: peer.key,
+                root: peer.root,
+                coords: peer.coords,
+                port: peer.port as u16,
+                priority: peer.priority,
+                remote: name.to_string(),
+                rx_bytes: link_conn.rx.load(Ordering::Relaxed),
+                tx_bytes: link_conn.tx.load(Ordering::Relaxed),
+                uptime: link_conn.up.elapsed(),
+            });
+        }
+        peer_infos
     }
 }

@@ -2,7 +2,7 @@ use std::{error::Error, time::Duration};
 
 use super::defaults;
 use crate::{
-    address::{to_ipv6, Address, Subnet},
+    address::{address_to_ipv6, Address, Subnet},
     core::SetupOption,
     error::YggErrors,
     ipv6rwc::{ReadWriteCloser, ReadWriteCloserRead},
@@ -114,7 +114,7 @@ impl TunAdapter {
             .args([
                 "addr",
                 "add",
-                &(to_ipv6(&self.addr).to_string() + "/7"),
+                &(address_to_ipv6(&self.addr).to_string() + "/7"),
                 "dev",
                 "ygg-rs",
             ])
