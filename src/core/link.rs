@@ -28,7 +28,7 @@ use tokio::{
 };
 use url::Url;
 
-use super::link_tcp::LinkTCP;
+use super::{link_tcp::LinkTCP, options::ListenAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LinkInfo {
@@ -57,10 +57,10 @@ pub struct Link {
     inner: Arc<Mutex<LinkInternal>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct LinkOptions {
-    pinned_ed25519_keys: HashMap<PublicKeyBytes, ()>,
-    priority: u8,
+    pub pinned_ed25519_keys: HashMap<PublicKeyBytes, ()>,
+    pub priority: u8,
 }
 
 #[derive(Clone)]
@@ -354,32 +354,34 @@ impl Links {
         Ok(dial_info)
     }
 
-    async fn listen(
+    pub async fn listen(
         &self,
+        core: Arc<Core>,
         url: &url::Url,
         sintf: &str,
-    ) -> Result<Option<TcpListener>, Box<dyn Error>> {
-        let listener = match url.scheme() {
+    ) -> Result<(), Box<dyn Error>> {
+        match url.scheme() {
             "tcp" => {
                 // Logic for listening on TCP
-                let addr: SocketAddr = url.host_str().unwrap_or("0.0.0.0:0").parse()?;
-                let tcp_listener = TcpListener::bind(addr).await?;
-                Some(tcp_listener)
+                let tcp_link = LinkTCP {
+                    links: self.clone(),
+                };
+                tcp_link.listen(core, url, sintf).await?;
             }
             "tls" => {
                 // Logic for listening on TLS
-                None // Replace this with actual TLS listener creation
+                // Replace this with actual TLS listener creation
             }
             "unix" => {
                 // Logic for listening on UNIX
-                None // Replace this with actual UNIX listener creation
+                // Replace this with actual UNIX listener creation
             }
             _ => {
                 return Err(format!("unrecognized scheme {}", url.scheme()).into());
             }
         };
 
-        Ok(listener)
+        Ok(())
     }
 }
 
@@ -492,4 +494,16 @@ impl Link {
 
         Ok(())
     }
+}
+
+pub fn link_options_for_listener(url: &url::Url) -> LinkOptions {
+    if let Some((_, prio)) = url.query_pairs().find(|(key, _)| key == "priority") {
+        if let Ok(prio) = prio.parse() {
+            return LinkOptions {
+                priority: prio,
+                ..Default::default()
+            };
+        }
+    }
+    LinkOptions::default()
 }

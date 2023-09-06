@@ -1,18 +1,22 @@
+use crate::core::link::link_options_for_listener;
+
 use super::{
     link::{link_info_for, LinkDial, LinkInfo, LinkOptions, Links},
     Core,
 };
+use log::info;
 use std::{
     error::Error,
     net::{IpAddr, Ipv6Addr, SocketAddr},
     str::FromStr,
     sync::Arc,
 };
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 
+#[derive(Clone)]
 pub struct LinkTCP {
     pub links: Links,
-    //    listener: TcpListener,
 }
 
 impl LinkTCP {
@@ -54,6 +58,62 @@ impl LinkTCP {
 
         Ok(())
     }
+
+    pub async fn listen(
+        &self,
+        core: Arc<Core>,
+        url: &url::Url,
+        sintf: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let addr = url.host_str().unwrap().to_string()
+            + ":"
+            + &url.port_or_known_default().unwrap().to_string();
+        let addr: SocketAddr = SocketAddr::from_str(&addr)?;
+        let listener = TcpListener::bind(addr).await?;
+        info!("TCP listener started on {}", listener.local_addr()?);
+        let mut listener = TcpListenerStream::new(listener);
+        let link = self.clone();
+        let sintf = sintf.to_string();
+        let url = url.clone();
+        tokio::spawn(async move {
+            while let Some(Ok(conn)) = listener.next().await {
+                let info = link_info_for(
+                    "tcp",
+                    &sintf,
+                    &tcp_id_for(
+                        &conn.local_addr().map_err(|e| e.to_string())?,
+                        &conn.peer_addr().map_err(|e| e.to_string())?,
+                    ),
+                );
+                if link.links.is_connected_to(&info) {
+                    continue;
+                }
+                let dial = LinkDial {
+                    url: url.clone(),
+                    sintf: sintf.to_string(),
+                };
+                link.handler(
+                    core.clone(),
+                    dial,
+                    "tcp://".to_string()
+                        + &conn.peer_addr().map_err(|e| e.to_string())?.to_string(),
+                    info.clone(),
+                    conn,
+                    link_options_for_listener(&url),
+                    true,
+                    false,
+                )
+                .await;
+            }
+            info!(
+                "TCP listener stopped on {}",
+                listener.into_inner().local_addr().unwrap()
+            );
+            Result::<(), Box<String>>::Ok(())
+        });
+        Ok(())
+    }
+
     async fn handler(
         &self,
         core: Arc<Core>,

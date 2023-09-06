@@ -147,6 +147,12 @@ impl Core {
             },
         };
         let core = Arc::new(core);
+        for listener in core.config.listeners.iter() {
+            core.links
+                .listen(core.clone(), &listener.parse::<url::Url>().unwrap(), "")
+                .await;
+        }
+
         //Add Peer Loop
         let core_cln = core.clone();
         tokio::spawn(async {
