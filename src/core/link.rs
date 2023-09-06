@@ -3,15 +3,19 @@ use crate::{
     version::VersionMetadata,
     Core,
 };
-use ironwood_rs::network::{
-    crypto::PublicKeyBytes,
-    wire::{Decode, Encode},
+use ironwood_rs::{
+    network::{
+        crypto::PublicKeyBytes,
+        wire::{Decode, Encode},
+    },
+    types::{Conn, IrwdError},
 };
 use log::{debug, info};
 use std::{
     collections::HashMap,
     error::Error,
     net::SocketAddr,
+    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
@@ -19,8 +23,8 @@ use std::{
     time::Instant,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
+    net::TcpListener,
 };
 use url::Url;
 
@@ -72,23 +76,16 @@ pub fn link_info_for(link_type: &str, sintf: &str, remote: &str) -> LinkInfo {
     }
 }
 
-pub struct LinkConn {
+#[derive(Debug)]
+pub struct LinkConn<T: Conn> {
     rx: Arc<AtomicU64>,
     tx: Arc<AtomicU64>,
     up: Arc<Instant>,
-    pub conn: TcpStream,
+    conn: T,
 }
 
-#[derive(Clone)]
-pub struct LinkConnHandle {
-    pub rx: Arc<AtomicU64>,
-    pub tx: Arc<AtomicU64>,
-    pub up: Arc<Instant>,
-    pub remote_addr: String,
-}
-
-impl LinkConn {
-    fn new(conn: TcpStream) -> Self {
+impl<T: Conn> LinkConn<T> {
+    fn new(conn: T) -> Self {
         LinkConn {
             rx: Arc::new(AtomicU64::new(0)),
             tx: Arc::new(AtomicU64::new(0)),
@@ -104,35 +101,163 @@ impl LinkConn {
             remote_addr: self.conn.peer_addr().unwrap().to_string(),
         }
     }
+}
 
-    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let result = self.conn.read(buf).await?;
-        self.rx.fetch_add(result as u64, Ordering::Relaxed);
-        Ok(result)
+impl<T: Conn> Conn for LinkConn<T> {
+    fn local_addr(&self) -> Result<String, IrwdError> {
+        self.conn.local_addr()
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let result = self.conn.read_exact(buf).await?;
-        self.rx.fetch_add(result as u64, Ordering::Relaxed);
-        Ok(result)
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn AsyncRead + Unpin + Send + Sync>,
+        Box<dyn AsyncWrite + Unpin + Send + Sync>,
+    ) {
+        let (rx, tx) = Box::new(self.conn).split();
+        (
+            Box::new(LinkConnRead {
+                rx: self.rx,
+                conn: rx,
+            }),
+            Box::new(LinkConnWrite {
+                tx: self.tx,
+                conn: tx,
+            }),
+        )
     }
 
-    async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let result = self.conn.write(buf).await?;
-        self.tx.fetch_add(result as u64, Ordering::Relaxed);
-        Ok(result)
-    }
-
-    async fn flush(&mut self) -> std::io::Result<()> {
-        self.conn.flush().await
+    fn peer_addr(&self) -> Result<String, IrwdError> {
+        self.conn.peer_addr()
     }
 }
 
+impl<T: Conn> AsyncRead for LinkConn<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let initial_rem = buf.remaining();
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        let res = Pin::new(conn).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = res {
+            let read = initial_rem - buf.remaining();
+            self_.rx.fetch_add(read as u64, Ordering::Relaxed);
+        }
+        res
+    }
+}
+
+impl<T: Conn> AsyncWrite for LinkConn<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        let res = Pin::new(conn).poll_write(cx, buf);
+        if let std::task::Poll::Ready(Ok(n)) = res {
+            self_.tx.fetch_add(n as u64, Ordering::Relaxed);
+        }
+        res
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        Pin::new(conn).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        Pin::new(conn).poll_shutdown(cx)
+    }
+}
+
+#[derive(Debug)]
+pub struct LinkConnRead<T: AsyncRead + Unpin + Send + Sync> {
+    rx: Arc<AtomicU64>,
+    conn: T,
+}
+impl<T: AsyncRead + Unpin + Send + Sync> AsyncRead for LinkConnRead<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let initial_rem = buf.remaining();
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        let res = Pin::new(conn).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = res {
+            let read = initial_rem - buf.remaining();
+            self_.rx.fetch_add(read as u64, Ordering::Relaxed);
+        }
+        res
+    }
+}
+
+#[derive(Debug)]
+pub struct LinkConnWrite<T: AsyncWrite + Unpin + Send + Sync> {
+    tx: Arc<AtomicU64>,
+    conn: T,
+}
+impl<T: AsyncWrite + Unpin + Send + Sync> AsyncWrite for LinkConnWrite<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        let res = Pin::new(conn).poll_write(cx, buf);
+        if let std::task::Poll::Ready(Ok(n)) = res {
+            self_.tx.fetch_add(n as u64, Ordering::Relaxed);
+        }
+        res
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        Pin::new(conn).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        let self_ = self.get_mut();
+        let conn = &mut self_.conn;
+        Pin::new(conn).poll_shutdown(cx)
+    }
+}
+#[derive(Clone)]
+pub struct LinkConnHandle {
+    pub rx: Arc<AtomicU64>,
+    pub tx: Arc<AtomicU64>,
+    pub up: Arc<Instant>,
+    pub remote_addr: String,
+}
+
 impl Links {
-    pub async fn create(
+    pub async fn create<T: Conn + 'static>(
         &self,
         core: Arc<Core>,
-        conn: TcpStream,
+        conn: T,
         dial: LinkDial,
         name: String,
         info: LinkInfo,
@@ -275,10 +400,10 @@ impl Link {
         self.get_inner().conn.clone()
     }
 
-    pub async fn handler(
+    pub async fn handler<T: Conn + 'static>(
         &mut self,
         core: Arc<Core>,
-        mut conn: LinkConn,
+        mut conn: LinkConn<T>,
         dial: LinkDial,
     ) -> Result<(), Box<dyn Error>> {
         if self.links.is_connected_to(&self.get_inner().info) {
@@ -362,7 +487,7 @@ impl Link {
         );
         core.pconn
             .pconn
-            .handle_conn(meta.key, conn.conn, intf.options.priority)
+            .handle_conn(meta.key, Box::new(conn), intf.options.priority)
             .await;
 
         Ok(())
