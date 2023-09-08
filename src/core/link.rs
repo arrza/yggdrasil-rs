@@ -14,7 +14,7 @@ use log::{debug, info};
 use std::{
     collections::HashMap,
     error::Error,
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -28,7 +28,7 @@ use tokio::{
 };
 use url::Url;
 
-use super::{link_tcp::LinkTCP, options::ListenAddress};
+use super::{link_tcp::LinkTCP, link_tls::LinkTLS, options::ListenAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LinkInfo {
@@ -346,10 +346,51 @@ impl Links {
         }
 
         let dial_info = info.clone();
-        let tcp_link = LinkTCP {
-            links: self.clone(),
+        match info.link_type.as_str() {
+            "tcp" => {
+                // Logic for dialing on TCP
+                let tcp_link = LinkTCP {
+                    links: self.clone(),
+                };
+                tcp_link.dial(core, url, options, sintf).await?;
+            }
+            "tls" => {
+                // SNI headers must contain hostnames and not IP addresses, so we must make sure
+                // that we do not populate the SNI with an IP literal. We do this by splitting
+                // the host-port combo from the query option and then seeing if it parses to an
+                // IP address successfully or not.
+
+                let mut tls_sni = String::new();
+                if let Some((_, sni)) = url.query_pairs().find(|(key, _)| key == "sni") {
+                    if sni.parse::<IpAddr>().is_err() {
+                        tls_sni = sni.into();
+                    }
+                }
+
+                // If the SNI is not configured still because the above failed then we'll try
+                // again but this time we'll use the host part of the peering URI instead.
+                if tls_sni.is_empty() {
+                    if let Some(host) = url.host_str() {
+                        if host.parse::<IpAddr>().is_err() {
+                            tls_sni = host.into();
+                        }
+                    }
+                }
+
+                // Logic for dialing on TCP
+                let tls_link = LinkTLS {
+                    links: self.clone(),
+                };
+                tls_link.dial(core, url, options, sintf, &tls_sni).await?;
+            }
+            "unix" => {
+                // Logic for dialing on UNIX
+                // Replace this with actual UNIX dialing
+            }
+            _ => {
+                return Err(format!("unrecognized scheme {}", url.scheme()).into());
+            }
         };
-        tcp_link.dial(core, url, options, sintf).await;
 
         Ok(dial_info)
     }
@@ -370,7 +411,10 @@ impl Links {
             }
             "tls" => {
                 // Logic for listening on TLS
-                // Replace this with actual TLS listener creation
+                let tls_link = LinkTLS {
+                    links: self.clone(),
+                };
+                tls_link.listen(core, url, sintf).await?;
             }
             "unix" => {
                 // Logic for listening on UNIX

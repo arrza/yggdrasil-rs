@@ -141,7 +141,7 @@ impl LinkTCP {
     }
 }
 
-fn tcp_id_for(local: &SocketAddr, remote_addr: &SocketAddr) -> String {
+pub fn tcp_id_for(local: &SocketAddr, remote_addr: &SocketAddr) -> String {
     if let SocketAddr::V4(local_v4) = local {
         if let SocketAddr::V4(remote_v4) = remote_addr {
             if local_v4.ip() == remote_v4.ip() {

@@ -1,6 +1,7 @@
 mod api;
 mod link;
 mod link_tcp;
+mod link_tls;
 mod nodeinfo;
 mod options;
 mod proto;
@@ -15,6 +16,7 @@ use ironwood_rs::{
     network::packetconn::OobHandlerRx,
     types::Addr,
 };
+use log::error;
 pub use options::{Peer, SetupOption};
 use std::{
     cmp::min,
@@ -78,7 +80,7 @@ impl CoreConfig {
 #[derive(Clone)]
 pub struct Core {
     pub pconn: Arc<PacketConn>,
-    secret: EdPriv,
+    pub secret: EdPriv,
     pub public: PublicKey,
     config: CoreConfig,
     links: Links,
@@ -148,9 +150,13 @@ impl Core {
         };
         let core = Arc::new(core);
         for listener in core.config.listeners.iter() {
-            core.links
+            if let Err(e) = core
+                .links
                 .listen(core.clone(), &listener.parse::<url::Url>().unwrap(), "")
-                .await;
+                .await
+            {
+                error!("Can not listen on {} with error {}", listener, e);
+            }
         }
 
         //Add Peer Loop
@@ -159,13 +165,17 @@ impl Core {
             let core = core_cln;
             loop {
                 for (peer, _) in core.config.peers.iter() {
-                    core.links
+                    if let Err(e) = core
+                        .links
                         .call(
                             core.clone(),
                             &peer.uri.parse().unwrap(),
                             peer.source_interface.as_ref().map_or_else(|| "", |v| v),
                         )
-                        .await;
+                        .await
+                    {
+                        error!("Can not connect to peer {} with error {}", peer.uri, e);
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
