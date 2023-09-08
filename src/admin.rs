@@ -128,6 +128,32 @@ impl AdminSocket {
                 })
             }),
         );
+        let core = self.core.clone();
+        self.add_handler(
+            "getDHT".into(),
+            "Show known DHT entries".into(),
+            vec![],
+            Box::new(move |_| {
+                let core = core.clone();
+                Box::pin(async move {
+                    let dht = get_dht_handler(core).await;
+                    serde_json::to_value(dht).unwrap()
+                })
+            }),
+        );
+        let core = self.core.clone();
+        self.add_handler(
+            "getPaths".into(),
+            "Show established paths through this node".into(),
+            vec![],
+            Box::new(move |_| {
+                let core = core.clone();
+                Box::pin(async move {
+                    let paths = get_paths_handler(core).await;
+                    serde_json::to_value(paths).unwrap()
+                })
+            }),
+        );
     }
 
     pub fn add_handler(
@@ -401,5 +427,64 @@ async fn get_peers_handler(core: Arc<Core>) -> GetPeersResponse {
     }
     GetPeersResponse {
         peers: peer_entries,
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetDHTResponse {
+    dht: Vec<DHTEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DHTEntry {
+    address: String,
+    key: String,
+    port: u64,
+    rest: u64,
+}
+
+async fn get_dht_handler(core: Arc<Core>) -> GetDHTResponse {
+    let dht = core.pconn.pconn.core.dhtree.get_dht().await;
+    let mut dht_entries = Vec::new();
+    for peer in dht {
+        let addr = addr_for_key(&peer.key).unwrap();
+        let addr = address_to_ipv6(&addr);
+        dht_entries.push(DHTEntry {
+            address: addr.to_string(),
+            key: hex::encode(peer.key.as_bytes()),
+            port: peer.port,
+            rest: peer.rest,
+        });
+    }
+    GetDHTResponse { dht: dht_entries }
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetPathsResponse {
+    paths: Vec<PathEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+
+struct PathEntry {
+    address: String,
+    key: String,
+    path: Vec<u64>,
+}
+
+async fn get_paths_handler(core: Arc<Core>) -> GetPathsResponse {
+    let paths = core.pconn.pconn.core.dhtree.get_paths().await;
+    let mut path_entries = Vec::new();
+    for peer in paths {
+        let addr = addr_for_key(&peer.key).unwrap();
+        let addr = address_to_ipv6(&addr);
+        path_entries.push(PathEntry {
+            address: addr.to_string(),
+            key: hex::encode(peer.key.as_bytes()),
+            path: peer.path,
+        });
+    }
+    GetPathsResponse {
+        paths: path_entries,
     }
 }
