@@ -154,6 +154,21 @@ impl AdminSocket {
                 })
             }),
         );
+        let core = self.core.clone();
+        self.add_handler(
+            "getSessions".into(),
+            "Show established traffic sessions with remote nodes".into(),
+            vec![],
+            {
+                Box::new(move |_| {
+                    let core = core.clone();
+                    Box::pin(async move {
+                        let sessions = get_sessions_handler(core).await;
+                        serde_json::to_value(sessions).unwrap()
+                    })
+                })
+            },
+        );
     }
 
     pub fn add_handler(
@@ -486,5 +501,38 @@ async fn get_paths_handler(core: Arc<Core>) -> GetPathsResponse {
     }
     GetPathsResponse {
         paths: path_entries,
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetSessionsResponse {
+    sessions: Vec<SessionEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SessionEntry {
+    address: String,
+    key: String,
+    bytes_recvd: u64,
+    bytes_sent: u64,
+    uptime: f64,
+}
+
+async fn get_sessions_handler(core: Arc<Core>) -> GetSessionsResponse {
+    let sessions = core.pconn.sessions.get_sessions();
+    let mut session_entries = Vec::new();
+    for session in sessions {
+        let addr = addr_for_key(&session.key.into()).unwrap();
+        let addr = address_to_ipv6(&addr);
+        session_entries.push(SessionEntry {
+            address: addr.to_string(),
+            key: hex::encode(session.key.as_bytes()),
+            bytes_recvd: session.rx,
+            bytes_sent: session.tx,
+            uptime: session.uptime.as_secs_f64(),
+        });
+    }
+    GetSessionsResponse {
+        sessions: session_entries,
     }
 }
