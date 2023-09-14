@@ -4,31 +4,38 @@ use super::{
     Core, TYPE_PROTO_NODE_INFO_REQUEST, TYPE_PROTO_NODE_INFO_RESPONSE, TYPE_SESSION_PROTO,
 };
 use ironwood_rs::{network::crypto::PublicKeyBytes, types::Addr};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::HashMap,
     error::Error,
     sync::{Arc, Mutex},
+    time::Duration,
 };
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time::timeout};
 
 #[derive(Serialize, Deserialize)]
 struct GetNodeInfoRequest {
     key: String,
 }
-type GetNodeInfoResponse = Value;
+type GetNodeInfoResponse = HashMap<String, Value>;
 
 #[derive(Clone)]
 pub struct NodeInfo {
-    core: Arc<Core>,
-    my_node_info: Value,
+    my_node_info: Arc<Mutex<Value>>,
     callbacks: Arc<Mutex<HashMap<PublicKeyBytes, oneshot::Sender<Value>>>>,
 }
 
 impl NodeInfo {
+    pub fn new() -> Self {
+        Self {
+            my_node_info: Arc::new(Mutex::new(Value::Null)),
+            callbacks: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
     pub fn set_node_info(
-        &mut self,
+        &self,
         given: &Value,
         privacy: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,55 +56,65 @@ impl NodeInfo {
                 "NodeInfo exceeds max length of 16384 bytes",
             ))),
             _ => {
-                self.my_node_info = new_node_info;
+                *self.my_node_info.lock().unwrap() = new_node_info;
                 Ok(())
             }
         }
     }
-    async fn send_req(&self, key: PublicKeyBytes) -> Result<(), Box<dyn Error>> {
+    async fn send_req(
+        &self,
+        core: Arc<Core>,
+        key: PublicKeyBytes,
+    ) -> Result<oneshot::Receiver<Value>, Box<dyn Error>> {
+        let (tx, rx) = oneshot::channel();
         let packet = [TYPE_SESSION_PROTO, TYPE_PROTO_NODE_INFO_REQUEST];
-        self.core.write_to(&packet, Addr(key)).await
+        core.pconn.write_to(&packet, Addr(key.clone())).await?;
+        self.callbacks.lock().unwrap().insert(key, tx);
+        Ok(rx)
     }
 
-    async fn send_res(&self, key: PublicKeyBytes) -> Result<(), Box<dyn Error>> {
+    async fn send_res(&self, core: Arc<Core>, key: PublicKeyBytes) -> Result<(), Box<dyn Error>> {
         let mut packet = vec![TYPE_SESSION_PROTO, TYPE_PROTO_NODE_INFO_RESPONSE];
-        packet.append(&mut serde_json::to_vec(&self.my_node_info).unwrap());
-        self.core.write_to(&packet, Addr(key)).await
+        packet.append(&mut serde_json::to_vec(&*self.my_node_info.lock().unwrap()).unwrap());
+        core.pconn.write_to(&packet, Addr(key)).await
     }
-    pub async fn handle_req(&self, key: PublicKeyBytes) -> Result<(), Box<dyn Error>> {
-        self.send_res(key).await
+    pub async fn handle_req(
+        &self,
+        core: Arc<Core>,
+        key: PublicKeyBytes,
+    ) -> Result<(), Box<dyn Error>> {
+        self.send_res(core, key).await
     }
 
-    pub async fn handle_res(&self, key: PublicKeyBytes, info: Value) -> Result<(), Box<dyn Error>> {
+    pub async fn handle_res(&self, key: PublicKeyBytes, bs: &[u8]) -> Result<(), Box<dyn Error>> {
         let mut callbacks = self.callbacks.lock().unwrap();
         if let Some(tx) = callbacks.remove(&key) {
+            let info: Value = serde_json::from_slice(bs)?;
             tx.send(info);
         }
         Ok(())
     }
 
-    async fn node_info_admin_handler(
-        &mut self,
-        in_data: &[u8],
+    pub async fn node_info_admin_handler(
+        &self,
+        core: Arc<Core>,
+        in_data: Value,
     ) -> Result<Value, Box<dyn std::error::Error>> {
-        let req: GetNodeInfoRequest = serde_json::from_slice(in_data)?;
-        let kbs = hex::decode(req.key)?;
+        debug!("node_info_admin_handler: {}", in_data);
+        let req: GetNodeInfoRequest = serde_json::from_value(in_data)?;
+        let kbs = hex::decode(&req.key)?;
         let mut key_array = [0u8; 32];
         key_array.copy_from_slice(&kbs[..32]);
 
-        self.send_req(PublicKeyBytes(key_array)).await;
+        let rx = self.send_req(core, PublicKeyBytes(key_array)).await?;
 
-        // let timer = std::time::Duration::from_secs(6);
-        // match receiver.recv_timeout(timer) {
-        //     Ok(info) => {
-        //         let msg: Value = serde_json::from_slice(&info)?;
-        //         let key_hex = hex::encode(kbs);
-        //         let mut res = GetNodeInfoResponse::new();
-        //         res.insert(key_hex, msg);
-        //         Ok(json!(res))
-        //     }
-        //     Err(_) => Err("Timed out waiting for response".into()),
-        // }
-        Ok(Value::String("test".to_string()))
+        match timeout(Duration::from_secs(6), rx).await {
+            Ok(Ok(msg)) => {
+                let mut resp = GetNodeInfoResponse::new();
+                resp.insert(req.key, msg);
+                Ok(serde_json::to_value(resp)?)
+            }
+            _ => Err("Timed out waiting for response".into()),
+        }
     }
 }

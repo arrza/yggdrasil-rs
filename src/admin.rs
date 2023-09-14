@@ -77,8 +77,8 @@ enum Listener {
 
 impl AdminSocket {
     pub fn new(core: Arc<Core>, listen_addr: String) -> Self {
-        let mut a = Self {
-            core,
+        let a = Self {
+            core: core.clone(),
             listen_addr,
             handlers: Arc::new(RwLock::new(HashMap::new())),
         };
@@ -101,10 +101,11 @@ impl AdminSocket {
                 Box::pin(async move { Ok(serde_json::to_value(ListResponse { list }).unwrap()) })
             }),
         );
+        core.set_admin(&a);
         a
     }
 
-    pub fn setup_admin_handlers(&mut self) {
+    pub fn setup_admin_handlers(&self) {
         let core = self.core.clone();
         self.add_handler(
             "getSelf".into(),
@@ -212,13 +213,7 @@ impl AdminSocket {
         );
     }
 
-    pub fn add_handler(
-        &mut self,
-        name: String,
-        desc: String,
-        args: Vec<String>,
-        handler: HandlerFunc,
-    ) {
+    pub fn add_handler(&self, name: String, desc: String, args: Vec<String>, handler: HandlerFunc) {
         self.handlers.write().unwrap().insert(
             name.to_lowercase(),
             Handler {

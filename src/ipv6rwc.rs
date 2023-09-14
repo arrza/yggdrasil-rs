@@ -378,7 +378,7 @@ impl KeyStoreRead {
         //let mut buf = vec![0u8; 65536];
         debug!("  read_pc.1");
         loop {
-            let (n, from) = self.core_read.read_from(buf).await?;
+            let (n, from) = self.core_read.read_from(self.core.clone(), buf).await?;
             debug!("Read pkt: {} {}", n, from);
             if n == 0 {
                 continue;

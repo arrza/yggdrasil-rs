@@ -74,15 +74,15 @@ impl Decode for VersionMetadata {
 }
 
 // Define static variables for build name and build version
-static mut BUILD_NAME: Option<String> = None;
-static mut BUILD_VERSION: Option<String> = None;
+static mut BUILD_NAME: Option<&str> = Some("yggdrasil-rs");
+static mut BUILD_VERSION: Option<&str> = Some("0.4.7");
 
 // Set the build name and build version. This function should be called
 // during initialization to inject the values if built from git.
-pub fn set_build_info(name: &str, version: &str) {
+pub fn set_build_info(name: &'static str, version: &'static str) {
     unsafe {
-        BUILD_NAME = Some(name.to_string());
-        BUILD_VERSION = Some(version.to_string());
+        BUILD_NAME = Some(name);
+        BUILD_VERSION = Some(version);
     }
 }
 

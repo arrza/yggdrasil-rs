@@ -31,12 +31,14 @@ use url::Url;
 
 use crate::{
     address::{addr_for_key, address_to_ipv6, subnet_for_key, subnet_to_ipv6},
+    admin::AdminSocket,
     error::YggErrors,
 };
 
 use self::{
     link::{LinkInfo, Links},
     options::{AllowedPublicKey, ListenAddress, NodeInfo, NodeInfoPrivacy},
+    proto::ProtoHandler,
 };
 
 // Packet types
@@ -88,11 +90,12 @@ pub struct Core {
     pub public: PublicKey,
     config: CoreConfig,
     links: Links,
+    proto: ProtoHandler,
 }
 
 pub struct CoreRead {
     pub pconn: Arc<PacketConn>,
-    //pub proto: ProtoHandler,
+    proto: ProtoHandler,
     pconn_read: PacketConnRead,
     secret: EdPriv,
     public: PublicKey,
@@ -103,21 +106,27 @@ impl CoreRead {
         self.pconn.mtu() - 1
     }
 
-    pub async fn read_from(&mut self, buf: &mut [u8]) -> Result<(usize, Addr), String> {
+    pub async fn read_from(
+        &mut self,
+        core: Arc<Core>,
+        buf: &mut [u8],
+    ) -> Result<(usize, Addr), String> {
         loop {
-            //let proto = self.proto.clone();
+            let proto = self.proto.clone();
             let (n, type_, from) = self.pconn_read.read_from(buf).await?;
             if n == 0 {
                 continue;
             }
+            let n = min(buf.len(), n);
             match type_ {
                 TYPE_SESSION_TRAFFIC => {
-                    let n = min(buf.len(), n);
                     return Ok((n, from));
                 }
                 TYPE_SESSION_PROTO => {
                     // handle protocol here
-                    // proto.handle_proto(from.0, buf).await;
+                    if let Err(e) = proto.handle_proto(core.clone(), from.0, &buf[..n]).await {
+                        error!("Error in handling proto: {}", e);
+                    }
                     continue;
                 }
                 _ => continue,
@@ -151,8 +160,17 @@ impl Core {
             links: Links {
                 links: Arc::new(Mutex::new(HashMap::new())),
             },
+            proto: ProtoHandler::new(),
         };
+
         let core = Arc::new(core);
+        core.proto
+            .nodeinfo
+            .set_node_info(
+                &serde_json::to_value(&core.config.nodeinfo).unwrap(),
+                core.config.nodeinfo_privacy,
+            )
+            .unwrap();
         for listener in core.config.listeners.iter() {
             if let Err(e) = core
                 .links
@@ -191,6 +209,7 @@ impl Core {
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
         });
+        let proto = core.proto.clone();
         (
             core,
             CoreRead {
@@ -198,6 +217,7 @@ impl Core {
                 pconn_read,
                 secret: ed_secret,
                 public: pub_key,
+                proto,
             },
             oob_handler_rx,
         )
@@ -320,5 +340,24 @@ impl Core {
             println!("Peer removed {}", peer.uri);
         }
         Ok(())
+    }
+
+    pub fn set_admin(self: Arc<Core>, a: &AdminSocket) {
+        let core = self.clone();
+        a.add_handler(
+            "getNodeInfo".into(),
+            "Request nodeinfo from a remote node by its public key".into(),
+            vec!["key".into()],
+            Box::new(move |args| {
+                let core = core.clone();
+                Box::pin(async move {
+                    core.proto
+                        .nodeinfo
+                        .node_info_admin_handler(core.clone(), args)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+            }),
+        );
     }
 }
