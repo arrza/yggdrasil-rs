@@ -7,6 +7,9 @@ pub enum YggErrors {
     InvalidPacket,
     InvalidDestinationAddress(Ipv6Addr),
     SendError(String),
+    PeerAlreadyConfigured,
+    PeerNotConfigured,
+    Other(Box<dyn Error>),
 }
 impl Display for YggErrors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,6 +25,9 @@ impl Display for YggErrors {
                 write!(f, "Invalid destination address {addr}")
             }
             YggErrors::SendError(msg) => write!(f, "Send error: {msg}"),
+            YggErrors::PeerAlreadyConfigured => write!(f, "Peer already configured"),
+            YggErrors::PeerNotConfigured => write!(f, "Peer not configured"),
+            YggErrors::Other(err) => write!(f, "Other error: {err}"),
         }
     }
 }

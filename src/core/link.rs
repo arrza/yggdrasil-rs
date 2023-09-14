@@ -8,7 +8,7 @@ use ironwood_rs::{
         crypto::PublicKeyBytes,
         wire::{Decode, Encode},
     },
-    types::{Conn, IrwdError},
+    types::{close_channel, CloseChannelRx, CloseChannelTx, Conn, IrwdError},
 };
 use log::{debug, info};
 use std::{
@@ -25,6 +25,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
     net::TcpListener,
+    sync::oneshot,
 };
 use url::Url;
 
@@ -93,13 +94,18 @@ impl<T: Conn> LinkConn<T> {
             conn,
         }
     }
-    fn handle(&self) -> LinkConnHandle {
-        LinkConnHandle {
-            rx: self.rx.clone(),
-            tx: self.tx.clone(),
-            up: self.up.clone(),
-            remote_addr: self.conn.peer_addr().unwrap().to_string(),
-        }
+    fn handle(&self) -> (LinkConnHandle, CloseChannelRx) {
+        let (tx, rx) = close_channel();
+        (
+            LinkConnHandle {
+                rx: self.rx.clone(),
+                tx: self.tx.clone(),
+                up: self.up.clone(),
+                remote_addr: self.conn.peer_addr().unwrap().to_string(),
+                close: tx,
+            },
+            rx,
+        )
     }
 }
 
@@ -251,6 +257,7 @@ pub struct LinkConnHandle {
     pub tx: Arc<AtomicU64>,
     pub up: Arc<Instant>,
     pub remote_addr: String,
+    pub close: CloseChannelTx,
 }
 
 impl Links {
@@ -267,10 +274,11 @@ impl Links {
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("++create");
         let conn = LinkConn::new(conn);
+        let (conn_handle, close) = conn.handle();
         let mut intf = Link {
             links: self.clone(),
             inner: Arc::new(Mutex::new(LinkInternal {
-                conn: conn.handle(),
+                conn: conn_handle,
                 lname: name.clone(),
                 options,
                 info,
@@ -281,7 +289,7 @@ impl Links {
         debug!("  create.1");
         tokio::spawn(async move {
             let peer_addr = conn.conn.peer_addr().unwrap();
-            if let Err(err) = intf.handler(core, conn, dial).await {
+            if let Err(err) = intf.handler(core, conn, dial, close).await {
                 eprintln!("Link handler {} error ({:?}): {}", name, peer_addr, err);
             }
         });
@@ -304,8 +312,10 @@ impl Links {
     ) -> Result<LinkInfo, Box<dyn Error>> {
         let info = LinkInfo {
             link_type: url.scheme().to_string(),
-            local: "local_addr".to_string(), // Update this with the actual local address
-            remote: url.host_str().unwrap_or("").to_string(),
+            local: sintf.to_string(), // Update this with the actual local address
+            remote: url.host_str().unwrap_or("").to_string()
+                + ":"
+                + url.port().unwrap_or(0).to_string().as_str(),
         };
 
         if self.is_connected_to(&info) {
@@ -431,7 +441,7 @@ impl Links {
 
 impl Link {
     fn get_inner(&self) -> MutexGuard<LinkInternal> {
-        let inner = self.inner.lock().unwrap();
+        let inner: MutexGuard<'_, LinkInternal> = self.inner.lock().unwrap();
         inner
     }
     pub fn get_name(&self) -> String {
@@ -446,12 +456,19 @@ impl Link {
         self.get_inner().conn.clone()
     }
 
+    pub async fn close(&self) {
+        let close = { self.get_inner().conn.close.clone() };
+        close.send(()).await.unwrap();
+        close.closed().await;
+    }
+
     pub async fn handler<T: Conn + 'static>(
         &mut self,
         core: Arc<Core>,
         mut conn: LinkConn<T>,
         dial: LinkDial,
-    ) -> Result<(), Box<dyn Error>> {
+        close: CloseChannelRx,
+    ) -> Result<(), String> {
         if self.links.is_connected_to(&self.get_inner().info) {
             return Ok(());
         }
@@ -467,15 +484,17 @@ impl Link {
         let mut meta_bytes = Vec::new();
         base.encode(&mut meta_bytes);
         //self.conn.conn.set_deadline(Some(Instant::now() + Duration::from_secs(6)))?;
-        let n = { conn.write(&meta_bytes).await? };
+        let n = { conn.write(&meta_bytes).await.map_err(|e| e.to_string())? };
         if n != meta_bytes.len() {
             return Err("incomplete handshake send".into());
         }
         let mut response = vec![0u8; meta_bytes.len()]; // Assuming the response is 40 bytes
-        conn.read_exact(&mut response).await?;
+        conn.read_exact(&mut response)
+            .await
+            .map_err(|e| e.to_string())?;
 
         //        intf.conn.clear_deadline()?;
-        let meta = VersionMetadata::decode(&response)?;
+        let meta = VersionMetadata::decode(&response).map_err(|e| e.to_string())?;
         if !meta.check() {
             let intf = self.get_inner();
             let connect_error = if intf.incoming {
@@ -523,7 +542,7 @@ impl Link {
         let dir = if intf.incoming { "inbound" } else { "outbound" };
         let remote_addr = address_to_ipv6(&addr_for_key(&meta.key).unwrap()).to_string();
         let remote_str = format!("{}@{}", remote_addr, intf.info.remote);
-        let local_str = conn.conn.local_addr()?;
+        let local_str = conn.conn.local_addr().map_err(|e| e.to_string())?;
         info!(
             "Connected {} {}: {}, source {}",
             dir,
@@ -533,7 +552,7 @@ impl Link {
         );
         core.pconn
             .pconn
-            .handle_conn(meta.key, Box::new(conn), intf.options.priority)
+            .handle_conn(meta.key, Box::new(conn), intf.options.priority, close)
             .await;
 
         Ok(())

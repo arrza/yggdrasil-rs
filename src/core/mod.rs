@@ -27,8 +27,12 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
+use url::Url;
 
-use crate::address::{addr_for_key, address_to_ipv6, subnet_for_key, subnet_to_ipv6};
+use crate::{
+    address::{addr_for_key, address_to_ipv6, subnet_for_key, subnet_to_ipv6},
+    error::YggErrors,
+};
 
 use self::{
     link::{LinkInfo, Links},
@@ -47,7 +51,7 @@ const TYPE_PROTO_DEBUG: u8 = 255;
 
 #[derive(Debug, Clone, Default)]
 struct CoreConfig {
-    peers: HashMap<Peer, Option<LinkInfo>>,
+    peers: Arc<Mutex<HashMap<Peer, Option<LinkInfo>>>>,
     listeners: HashSet<ListenAddress>,
     nodeinfo: NodeInfo,
     nodeinfo_privacy: NodeInfoPrivacy,
@@ -58,7 +62,7 @@ impl CoreConfig {
     fn _apply_option(&mut self, opt: SetupOption) {
         match opt {
             SetupOption::Peer(peer) => {
-                self.peers.insert(peer, None);
+                self.peers.lock().unwrap().insert(peer, None);
             }
             SetupOption::ListenAddress(address) => {
                 self.listeners.insert(address);
@@ -164,8 +168,9 @@ impl Core {
         tokio::spawn(async {
             let core = core_cln;
             loop {
-                for (peer, _) in core.config.peers.iter() {
-                    if let Err(e) = core
+                let peers: Vec<_> = core.config.peers.lock().unwrap().keys().cloned().collect();
+                for peer in peers {
+                    match core
                         .links
                         .call(
                             core.clone(),
@@ -174,7 +179,13 @@ impl Core {
                         )
                         .await
                     {
-                        error!("Can not connect to peer {} with error {}", peer.uri, e);
+                        Ok(link_info) => {
+                            let mut peers = core.config.peers.lock().unwrap();
+                            peers.insert(peer, Some(link_info));
+                        }
+                        Err(e) => {
+                            error!("Can not connect to peer {} with error {}", peer.uri, e);
+                        }
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(60)).await;
@@ -228,7 +239,7 @@ impl Core {
         let mut names = HashMap::new();
         {
             let links = self.links.links.lock().unwrap();
-            for (info, link) in links.iter() {
+            for (_, link) in links.iter() {
                 names.insert(
                     link.get_remote_addr(),
                     (link.get_name(), link.get_link_conn()),
@@ -250,5 +261,64 @@ impl Core {
             });
         }
         peer_infos
+    }
+
+    pub async fn add_peer(
+        self: Arc<Self>,
+        uri: &str,
+        source_interface: Option<&str>,
+    ) -> Result<(), YggErrors> {
+        let sintf = source_interface.map(|v| v.to_string());
+        let peer = Peer {
+            uri: uri.to_string(),
+            source_interface: sintf,
+        };
+        if self.config.peers.lock().unwrap().contains_key(&peer) {
+            return Err(YggErrors::PeerAlreadyConfigured);
+        }
+
+        let url = Url::parse(uri).unwrap();
+        let link_info = self
+            .links
+            .call(
+                self.clone(),
+                &url,
+                source_interface.map_or_else(|| "", |v| v),
+            )
+            .await
+            .map_err(|e| YggErrors::Other(e))?;
+        self.config
+            .peers
+            .lock()
+            .unwrap()
+            .insert(peer, Some(link_info));
+        Ok(())
+    }
+
+    pub async fn remove_peer(
+        self: Arc<Self>,
+        uri: &str,
+        source_interface: Option<&str>,
+    ) -> Result<(), YggErrors> {
+        let sintf = source_interface.map(|v| v.to_string());
+        let peer = Peer {
+            uri: uri.to_string(),
+            source_interface: sintf,
+        };
+        if !self.config.peers.lock().unwrap().contains_key(&peer) {
+            return Err(YggErrors::PeerNotConfigured);
+        }
+        let link = if let Some(link_info) = self.config.peers.lock().unwrap().remove(&peer).unwrap()
+        {
+            let mut links = self.links.links.lock().unwrap();
+            links.remove(&link_info)
+        } else {
+            None
+        };
+        if let Some(link) = link {
+            link.close().await;
+            println!("Peer removed {}", peer.uri);
+        }
+        Ok(())
     }
 }

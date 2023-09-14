@@ -25,8 +25,11 @@ use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
 use url::Url;
 
 // TODO: Add authentication
-type HandlerFunc =
-    Box<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Value> + Send + 'static>> + Sync + Send>;
+type HandlerFunc = Box<
+    dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send + 'static>>
+        + Sync
+        + Send,
+>;
 struct Handler {
     func: HandlerFunc,
     desc: String,
@@ -95,7 +98,7 @@ impl AdminSocket {
                 }
                 list.sort_by(|a, b| a.command.cmp(&b.command));
 
-                Box::pin(async move { serde_json::to_value(ListResponse { list }).unwrap() })
+                Box::pin(async move { Ok(serde_json::to_value(ListResponse { list }).unwrap()) })
             }),
         );
         a
@@ -111,7 +114,7 @@ impl AdminSocket {
                 let core = core.clone();
                 Box::pin(async move {
                     let self_ = get_self_handler(core).await;
-                    serde_json::to_value(self_).unwrap()
+                    Ok(serde_json::to_value(self_).unwrap())
                 })
             }),
         );
@@ -124,7 +127,7 @@ impl AdminSocket {
                 let core = core.clone();
                 Box::pin(async move {
                     let peers = get_peers_handler(core).await;
-                    serde_json::to_value(peers).unwrap()
+                    Ok(serde_json::to_value(peers).unwrap())
                 })
             }),
         );
@@ -137,7 +140,7 @@ impl AdminSocket {
                 let core = core.clone();
                 Box::pin(async move {
                     let dht = get_dht_handler(core).await;
-                    serde_json::to_value(dht).unwrap()
+                    Ok(serde_json::to_value(dht).unwrap())
                 })
             }),
         );
@@ -150,7 +153,7 @@ impl AdminSocket {
                 let core = core.clone();
                 Box::pin(async move {
                     let paths = get_paths_handler(core).await;
-                    serde_json::to_value(paths).unwrap()
+                    Ok(serde_json::to_value(paths).unwrap())
                 })
             }),
         );
@@ -164,7 +167,45 @@ impl AdminSocket {
                     let core = core.clone();
                     Box::pin(async move {
                         let sessions = get_sessions_handler(core).await;
-                        serde_json::to_value(sessions).unwrap()
+                        Ok(serde_json::to_value(sessions).unwrap())
+                    })
+                })
+            },
+        );
+        let core = self.core.clone();
+        self.add_handler(
+            "addPeer".into(),
+            "Add a peer to the peer list".into(),
+            vec!["uri".into(), "interface".into()],
+            {
+                Box::new(move |args| {
+                    let core = core.clone();
+                    let req: AddPeerRequest = serde_json::from_value(args).unwrap();
+                    Box::pin(async move {
+                        let response = add_peer_handler(core, req).await;
+                        match response {
+                            Ok(response) => Ok(serde_json::to_value(response).unwrap()),
+                            Err(e) => Err(e),
+                        }
+                    })
+                })
+            },
+        );
+        let core = self.core.clone();
+        self.add_handler(
+            "removePeer".into(),
+            "Remove a peer from the peer list".into(),
+            vec!["uri".into(), "interface".into()],
+            {
+                Box::new(move |args| {
+                    let core = core.clone();
+                    let req: RemovePeerRequest = serde_json::from_value(args).unwrap();
+                    Box::pin(async move {
+                        let response = remove_peer_handler(core, req).await;
+                        match response {
+                            Ok(response) => Ok(serde_json::to_value(response).unwrap()),
+                            Err(e) => Err(e),
+                        }
                     })
                 })
             },
@@ -367,14 +408,18 @@ impl AdminSocket {
                 func(args)
             } else {
                 status = "error".into();
-                Box::pin(async move { serde_json::to_value("Unknown command").unwrap() })
+                Box::pin(async move { Ok(serde_json::to_value("Unknown command").unwrap()) })
             }
         };
 
-        let response = task.await;
+        let (error, response) = match task.await {
+            Ok(resp) => (None, resp),
+            Err(e) => (Some(e), Value::Null),
+        };
+
         AdminSocketResponse {
             status,
-            error: None,
+            error,
             request: serde_json::to_value(req).unwrap(),
             response,
         }
@@ -535,4 +580,43 @@ async fn get_sessions_handler(core: Arc<Core>) -> GetSessionsResponse {
     GetSessionsResponse {
         sessions: session_entries,
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct AddPeerRequest {
+    uri: String,
+    interface: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AddPeerResponse {}
+
+async fn add_peer_handler(core: Arc<Core>, req: AddPeerRequest) -> Result<AddPeerResponse, String> {
+    let uri = req.uri;
+    let interface = req.interface;
+    core.add_peer(&uri, interface.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(AddPeerResponse {})
+}
+
+#[derive(Serialize, Deserialize)]
+struct RemovePeerRequest {
+    uri: String,
+    interface: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RemovePeerResponse {}
+
+async fn remove_peer_handler(
+    core: Arc<Core>,
+    req: RemovePeerRequest,
+) -> Result<RemovePeerResponse, String> {
+    let uri = req.uri;
+    let interface = req.interface;
+    core.remove_peer(&uri, interface.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(RemovePeerResponse {})
 }
