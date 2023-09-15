@@ -1,14 +1,23 @@
-use std::{error::Error, time::Duration};
-
 use super::defaults;
 use crate::{
     address::{address_to_ipv6, Address, Subnet},
+    admin::AdminSocket,
     core::SetupOption,
     error::YggErrors,
     ipv6rwc::{ReadWriteCloser, ReadWriteCloserRead},
 };
 use ironwood_rs::network::packetconn::OobHandlerRx;
 use log::{debug, error};
+use serde::{Deserialize, Serialize};
+use std::{
+    error::Error,
+    f32::consts::E,
+    sync::{
+        atomic::{AtomicBool, AtomicU16, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
@@ -17,6 +26,13 @@ use tokio_tun::{Tun, TunBuilder};
 
 type MTU = u16;
 
+#[derive(Serialize, Deserialize)]
+struct GetTunResponse {
+    enabled: bool,
+    name: String,
+    mtu: u64,
+}
+
 struct TunAdapterConfig {
     name: String,
     mtu: u16,
@@ -24,10 +40,10 @@ struct TunAdapterConfig {
 pub struct TunAdapter {
     addr: Address,
     subnet: Subnet,
-    mtu: u16,
+    mtu: Arc<AtomicU16>,
     iface: Tun,
     is_open: bool,
-    is_enabled: bool,
+    is_enabled: Arc<AtomicBool>,
     config: TunAdapterConfig,
 }
 
@@ -63,7 +79,7 @@ fn maximum_mtu() -> u16 {
 
 impl TunAdapter {
     pub fn mtu(&self) -> u16 {
-        get_supported_mtu(self.mtu)
+        get_supported_mtu(self.mtu.load(Ordering::Relaxed))
     }
 
     pub fn new(rwc: &ReadWriteCloser, opts: Vec<SetupOption>) -> Result<Self, Box<dyn Error>> {
@@ -88,14 +104,14 @@ impl TunAdapter {
         Ok(TunAdapter {
             addr: rwc.address(),
             subnet: rwc.subnet(),
-            mtu: if config.mtu > rwc.max_mtu() {
+            mtu: Arc::new(AtomicU16::new(if config.mtu > rwc.max_mtu() {
                 rwc.max_mtu()
             } else {
                 config.mtu
-            },
+            })),
             iface,
             is_open: false,
-            is_enabled: false,
+            is_enabled: Arc::new(AtomicBool::new(false)),
             config,
         })
     }
@@ -108,6 +124,11 @@ impl TunAdapter {
     ) -> Result<(), String> {
         if self.is_open {
             return Err("TUN module is already started".into());
+        }
+        if self.config.name == "none" || self.config.name == "dummy" {
+            debug!("Not starting TUN as ifname is none or dummy");
+            self.is_enabled.store(false, Ordering::Relaxed);
+            return Err("TUN module is disabled".into());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
         std::process::Command::new("ip")
@@ -125,9 +146,10 @@ impl TunAdapter {
             .args(["link", "set", "dev", "ygg-rs", "mtu", "53000"])
             .output()
             .map_err(|e| e.to_string())?;
-        self.mtu = 53000;
-        rwc.set_mtu(self.mtu);
-        rwc_read.set_mtu(self.mtu);
+        let mtu = 53000;
+        self.mtu.store(mtu, Ordering::Relaxed);
+        rwc.set_mtu(mtu);
+        rwc_read.set_mtu(mtu);
 
         let key_store_oob = rwc.key_store.clone();
         let oob_task = async {
@@ -158,12 +180,40 @@ impl TunAdapter {
                 }
             }
         };
-
+        self.is_open = true;
+        self.is_enabled.store(true, Ordering::Relaxed);
         select! {
             _ = rx_task => {},
             _ = tx_task => {},
             _ = oob_task => {},
         }
         Ok(())
+    }
+
+    pub fn setup_admin_handlers(&self, a: &AdminSocket) {
+        let a = a.clone();
+        let is_enabled = self.is_enabled.clone();
+        let mtu = self.mtu.clone();
+        let name = self.config.name.clone();
+        a.add_handler(
+            "getTun".into(),
+            "Show information about the node's TUN interface".into(),
+            vec![],
+            {
+                Box::new(move |_| {
+                    let is_enabled = is_enabled.clone();
+                    let mtu = mtu.clone();
+                    let name = name.clone();
+                    Box::pin(async move {
+                        let resp = GetTunResponse {
+                            enabled: is_enabled.load(Ordering::Relaxed),
+                            name,
+                            mtu: mtu.load(Ordering::Relaxed) as u64,
+                        };
+                        Ok(serde_json::to_value(resp).unwrap())
+                    })
+                })
+            },
+        );
     }
 }

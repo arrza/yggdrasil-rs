@@ -237,29 +237,29 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     }
 
     // Setup the admin socket.
-    {
-        let mut admin = AdminSocket::new(core.clone(), cfg.admin_listen);
-        admin.setup_admin_handlers();
-        tokio::spawn(async move {
-            admin.listen().await;
-        });
-    }
+
+    let admin = AdminSocket::new(core.clone(), cfg.admin_listen);
+    admin.setup_admin_handlers();
+
     // Setup the multicast module.
     // Setup the TUN module.
 
-    {
-        let options = vec![
-            SetupOption::InterfaceName(cfg.if_name),
-            SetupOption::InterfaceMTU(cfg.if_mtu as u16),
-        ];
+    let options = vec![
+        SetupOption::InterfaceName(cfg.if_name),
+        SetupOption::InterfaceMTU(cfg.if_mtu as u16),
+    ];
 
-        // tokio::spawn(async move {
-        let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
-        let tun = TunAdapter::new(&rwc, options).expect("Can not create tun device");
-        tun.start(rwc, rwc_read, oob_handler_rx).await?;
+    // tokio::spawn(async move {
+    let (rwc, rwc_read) = ReadWriteCloser::new(core, core_read);
+    let tun = TunAdapter::new(&rwc, options).expect("Can not create tun device");
+    tun.setup_admin_handlers(&admin);
 
-        // });
-    }
+    // });
+
+    tokio::spawn(async move {
+        admin.listen().await;
+    });
+    tun.start(rwc, rwc_read, oob_handler_rx).await?;
 
     Ok(())
 }
