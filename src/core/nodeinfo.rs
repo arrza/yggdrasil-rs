@@ -1,8 +1,7 @@
-use crate::version;
-
 use super::{
     Core, TYPE_PROTO_NODE_INFO_REQUEST, TYPE_PROTO_NODE_INFO_RESPONSE, TYPE_SESSION_PROTO,
 };
+use crate::version;
 use ironwood_rs::{network::crypto::PublicKeyBytes, types::Addr};
 use log::debug;
 use serde::{Deserialize, Serialize};

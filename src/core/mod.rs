@@ -359,5 +359,50 @@ impl Core {
                 })
             }),
         );
+        let core = self.clone();
+        a.add_handler(
+            "debug_remoteGetSelf".into(),
+            "Debug use only".into(),
+            vec!["key".into()],
+            Box::new(move |args| {
+                let core = core.clone();
+                Box::pin(async move {
+                    core.proto
+                        .get_self_handler(core.clone(), args)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+            }),
+        );
+        let core = self.clone();
+        a.add_handler(
+            "debug_remoteGetPeers".into(),
+            "Debug use only".into(),
+            vec!["key".into()],
+            Box::new(move |args| {
+                let core = core.clone();
+                Box::pin(async move {
+                    core.proto
+                        .get_peers_handler(core.clone(), args)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+            }),
+        );
+        let core = self.clone();
+        a.add_handler(
+            "debug_remoteGetDHT".into(),
+            "Debug use only".into(),
+            vec!["key".into()],
+            Box::new(move |args| {
+                let core = core.clone();
+                Box::pin(async move {
+                    core.proto
+                        .get_dht_handler(core.clone(), args)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+            }),
+        );
     }
 }
