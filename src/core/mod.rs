@@ -227,6 +227,19 @@ impl Core {
         self.pconn.mtu() - 1
     }
 
+    pub async fn call_peer(self: Arc<Core>, url: &Url, sintf: &str) -> Result<(), YggErrors> {
+        self.links
+            .call(self.clone(), url, sintf)
+            .await
+            .map_err(|e| YggErrors::Other(e))?;
+        Ok(())
+    }
+    pub async fn listen(self: Arc<Core>, url: &Url, sintf: &str) -> Result<String, YggErrors> {
+        self.links
+            .listen(self.clone(), url, sintf)
+            .await
+            .map_err(|e| YggErrors::Other(e))
+    }
     pub async fn write_to(&self, p: &[u8], addr: Addr) -> Result<(), Box<dyn Error>> {
         let mut buf = Vec::new();
         buf.push(TYPE_SESSION_TRAFFIC);

@@ -11,7 +11,7 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 
 #[derive(Clone)]
@@ -64,12 +64,22 @@ impl LinkTCP {
         core: Arc<Core>,
         url: &url::Url,
         sintf: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let addr = url.host_str().unwrap().to_string()
             + ":"
             + &url.port_or_known_default().unwrap().to_string();
         let addr: SocketAddr = SocketAddr::from_str(&addr)?;
-        let listener = TcpListener::bind(addr).await?;
+        let tcp_socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+        if !sintf.is_empty() {
+            tcp_socket.bind_device(Some(sintf.as_bytes()))?;
+        }
+        tcp_socket.bind(addr)?;
+        let addr = tcp_socket.local_addr()?;
+        let listener = tcp_socket.listen(32)?;
         info!("TCP listener started on {}", listener.local_addr()?);
         let mut listener = TcpListenerStream::new(listener);
         let link = self.clone();
@@ -111,7 +121,7 @@ impl LinkTCP {
             );
             Result::<(), Box<String>>::Ok(())
         });
-        Ok(())
+        Ok(addr.to_string())
     }
 
     async fn handler(

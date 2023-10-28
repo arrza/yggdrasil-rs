@@ -410,32 +410,30 @@ impl Links {
         core: Arc<Core>,
         url: &url::Url,
         sintf: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
+        debug!("Listen on {}.", url);
         match url.scheme() {
             "tcp" => {
                 // Logic for listening on TCP
                 let tcp_link = LinkTCP {
                     links: self.clone(),
                 };
-                tcp_link.listen(core, url, sintf).await?;
+                tcp_link.listen(core, url, sintf).await
             }
             "tls" => {
                 // Logic for listening on TLS
                 let tls_link = LinkTLS {
                     links: self.clone(),
                 };
-                tls_link.listen(core, url, sintf).await?;
+                tls_link.listen(core, url, sintf).await
             }
             "unix" => {
                 // Logic for listening on UNIX
                 // Replace this with actual UNIX listener creation
+                Err(format!("unimplemented scheme {}", url.scheme()).into())
             }
-            _ => {
-                return Err(format!("unrecognized scheme {}", url.scheme()).into());
-            }
-        };
-
-        Ok(())
+            _ => Err(format!("unrecognized scheme {}", url.scheme()).into()),
+        }
     }
 }
 

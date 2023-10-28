@@ -11,7 +11,7 @@ tokio = { version = "1.28.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["net"] }
 tokio-util = { version = "0.7.8", features = ["codec"] }
 tokio-utils = "0.1.2"
-ironwood-rs = { git="https://github.com/arrza/ironwood-rs.git", rev="df13d543747bf25185c9940b0253b58fdcc94461" }
+ironwood-rs = { git="https://github.com/arrza/ironwood-rs.git", rev="8db1b32871d637c93fefb0a65896a82188b55639" }
 hex = "0.4.3"
 ed25519-dalek = "1.0.1"
 env_logger = "0.10.0"

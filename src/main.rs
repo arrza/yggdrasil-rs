@@ -5,6 +5,7 @@ mod core;
 mod defaults;
 mod error;
 mod ipv6rwc;
+mod multicast;
 mod tun;
 mod version;
 
@@ -13,6 +14,7 @@ use crate::{
     admin::AdminSocket,
     core::{Core, SetupOption},
     ipv6rwc::ReadWriteCloser,
+    multicast::{Multicast, MulticastInterface},
     tun::TunAdapter,
 };
 use clap::Parser;
@@ -20,7 +22,7 @@ use config::NodeConfig;
 use ed25519_dalek::SecretKey;
 use hex::FromHex;
 use ironwood_rs::network::crypto::PublicKeyBytes;
-use log::warn;
+use log::{error, warn};
 use std::{error::Error, io::Read, net::IpAddr};
 
 #[derive(Parser, Debug)]
@@ -242,6 +244,18 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     admin.setup_admin_handlers();
 
     // Setup the multicast module.
+    let mut options = Vec::new();
+    for intf in cfg.multicast_interfaces {
+        options.push(multicast::SetupOption::Interface(MulticastInterface {
+            regex: intf.regex,
+            beacon: intf.beacon,
+            listen: intf.listen,
+            port: intf.port,
+            priority: intf.priority as u8,
+        }));
+    }
+    let mut multicast = Multicast::new(core.clone(), options);
+    multicast.setup_admin_handlers(&admin);
     // Setup the TUN module.
 
     let options = vec![
@@ -257,7 +271,14 @@ async fn run(args: YggArgs) -> Result<(), Box<dyn Error>> {
     // });
 
     tokio::spawn(async move {
-        admin.listen().await;
+        if let Err(e) = admin.listen().await {
+            error!("Admin socket error: {}", e);
+        }
+    });
+    tokio::spawn(async move {
+        if let Err(e) = multicast.start().await {
+            error!("Multicast error: {}", e);
+        }
     });
     tun.start(rwc, rwc_read, oob_handler_rx).await?;
 

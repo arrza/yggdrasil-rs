@@ -9,6 +9,7 @@ pub enum YggErrors {
     SendError(String),
     PeerAlreadyConfigured,
     PeerNotConfigured,
+    Multicast(Box<dyn Error>),
     Other(Box<dyn Error>),
 }
 impl Display for YggErrors {
@@ -27,6 +28,7 @@ impl Display for YggErrors {
             YggErrors::SendError(msg) => write!(f, "Send error: {msg}"),
             YggErrors::PeerAlreadyConfigured => write!(f, "Peer already configured"),
             YggErrors::PeerNotConfigured => write!(f, "Peer not configured"),
+            YggErrors::Multicast(err) => write!(f, "Multicast Error: {err}"),
             YggErrors::Other(err) => write!(f, "Other error: {err}"),
         }
     }

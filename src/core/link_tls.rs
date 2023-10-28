@@ -6,7 +6,7 @@ use super::{
     Core,
 };
 use ironwood_rs::{encrypted::crypto::to_box_priv, types::Conn};
-use log::info;
+use log::{debug, info};
 use openssl::{
     bn,
     pkey::{self, PKey},
@@ -16,7 +16,7 @@ use openssl::{
     },
 };
 use std::{error::Error, net::SocketAddr, str::FromStr, sync::Arc};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 use tokio_native_tls::{
     native_tls::{self, Identity},
     TlsAcceptor, TlsConnector, TlsStream,
@@ -40,8 +40,13 @@ impl LinkTLS {
         let addr = url.host_str().unwrap().to_string()
             + ":"
             + &url.port_or_known_default().unwrap().to_string();
+        debug!("tls dial socket: {}", addr);
         let addr = SocketAddr::from_str(&addr)?;
-        let tcp_conn = TcpStream::connect(addr).await?;
+        let tcp_socket = TcpSocket::new_v6()?;
+        if !sintf.is_empty() {
+            tcp_socket.bind_device(Some(sintf.as_bytes()))?
+        }
+        let tcp_conn = tcp_socket.connect(addr).await?;
         let info = link_info_for("tls", sintf, &tcp_id_for(&tcp_conn.local_addr()?, &addr));
         if self.links.is_connected_to(&info) {
             return Ok(());
@@ -93,12 +98,23 @@ impl LinkTLS {
         core: Arc<Core>,
         url: &url::Url,
         sintf: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let addr = url.host_str().unwrap().to_string()
             + ":"
             + &url.port_or_known_default().unwrap().to_string();
         let addr: SocketAddr = SocketAddr::from_str(&addr)?;
-        let listener = TcpListener::bind(addr).await?;
+        debug!("Tls listen addr: {}", addr);
+        let tcp_socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+        if !sintf.is_empty() {
+            tcp_socket.bind_device(Some(sintf.as_bytes()))?;
+        }
+        tcp_socket.bind(addr)?;
+        let addr = tcp_socket.local_addr()?;
+        let listener = tcp_socket.listen(32)?;
         let (cert, key) = generate_config(core.clone())?;
         let identity = Identity::from_pkcs8(&cert.to_pem()?, &key.private_key_to_pem_pkcs8()?)?;
         let tls_accpetor: TlsAcceptor = native_tls::TlsAcceptor::builder(identity)
@@ -150,7 +166,7 @@ impl LinkTLS {
             );
             Result::<(), Box<String>>::Ok(())
         });
-        Ok(())
+        Ok(addr.to_string())
     }
 
     async fn handler(
