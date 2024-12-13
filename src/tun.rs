@@ -95,7 +95,7 @@ impl TunAdapter {
             }
         }
         let iface = TunBuilder::new()
-            .name("ygg-rs") // if name is empty, then it is set by kernel.
+            .name(&config.name) // if name is empty, then it is set by kernel.
             .tap(false) // false (default): TUN, true: TAP.
             .packet_info(false) // false: IFF_NO_PI, default is true.
             .up() // or set it up manually using `sudo ip link set <tun-name> up`.
@@ -137,7 +137,7 @@ impl TunAdapter {
                 "add",
                 &(address_to_ipv6(&self.addr).to_string() + "/7"),
                 "dev",
-                "ygg-rs",
+                &self.config.name,
             ])
             .output()
             .map_err(|e| e.to_string())?;
